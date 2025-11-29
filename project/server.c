@@ -35,6 +35,13 @@ int main(int argc, char *argv[]){
         exit(1);
     }//end if 
 
+    //check if the root directory exists, just a prototype
+    if(check_directory("./usersHome") == 0){
+        //create_directory("/root");
+        printf("Root directory does not exist\n");
+        exit(1);
+    }//end if 
+
 
    
 
