@@ -8,6 +8,12 @@ in the file users.txt it sends a success message to the client, otherwise
 it sends a failure message */
 void login(char *username,int client_sock){
 
+    //check if the username is null or made only by spaces
+    if(username == NULL || strlen(username) == 0){
+        write(client_sock, "Insert Username!\n", strlen("Insert Username!\n")); //send the message to the client
+        return;
+    }//end if 
+
     FILE *f = fopen("users.txt", "r");
     if(f == NULL){
         perror("Error in the file opening!");
@@ -17,8 +23,8 @@ void login(char *username,int client_sock){
     char line[BUFFER_SIZE];
     while(fgets(line, BUFFER_SIZE, f) != NULL){
 
-        //line[strcspn(line, "\n")] = '\0'; //remove the newline character
-line[strcspn(line, "\r\n")] = '\0'; // rimuove newline
+        line[strcspn(line, "\n")] = '\0'; //remove the newline character
+      //  line[strcspn(line, "\r\n")] = '\0'; // rimuove newline
 
         if(strcmp(line, username) == 0){
              write(client_sock, "Login successful!\n", strlen("Login successful!\n")); //send the message to the client
@@ -51,24 +57,50 @@ void handle_client(int client_sock){
         printf("Client: %s", buffer); //print the message received from the client, server side
        // write(client_sock, buffer, n); //send the message to the client 
 
-    
+          
       
 
+        //test
+        char *firstToken = strtok(buffer," "); //first token is the command 
+        char *secondToken = strtok(NULL," "); //second token of the command
+        char *thirdToken = strtok(NULL," "); //third token of the command
+
+        //removes eventually \n
+        if (firstToken != NULL) {
+            firstToken[strcspn(firstToken, "\n")] = '\0';
+        }
+        if (secondToken != NULL) {
+            secondToken[strcspn(secondToken, "\n")] = '\0';
+        }
+        if (thirdToken != NULL) {
+            thirdToken[strcspn(thirdToken, "\n")] = '\0';
+        }
+
+      
        
-        //look for login in the buffer
-        if(strstr(buffer, "login") != NULL){
-            char *cmd = strtok(buffer, " ");   // first token is login
-            char *usr = strtok(NULL, " ");     // second token is the username
+      // printf("%d\n",strcmp(firstToken,"login")); //Debug 
 
-            
-           
-           if(usr != NULL){
-            usr[strcspn(usr, "\n")] = '\0'; //remove the newline character
-            login(usr, client_sock);
+             if(strcmp("login",firstToken)==0){
+                     
+                   
+                    login(secondToken,client_sock);
 
-           }
-            
-        }//end if
+        
+             }else{
+                if(strcmp("create_user",firstToken)==0){
+                //test for create user
+                write(client_sock,"test create ok!\n",strlen("test create ok!\n"));
+                }else{
+                //if i am here, the user input is invalid
+                write(client_sock,"Invalid Command2!\n",strlen("Invalid Command2!\n"));
+                }//end nested else
+
+             }//end else
+
+
+      
+       
+
         
 
     }//end while
