@@ -136,7 +136,7 @@ int main(int argc, char *argv[]){
                     close(client_sock);
                 }//end nested else
             }//end else
-        }
+        }//end if socket
     }//end while
     
     close(server_sock); //closes the server socket
