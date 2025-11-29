@@ -17,7 +17,8 @@ void login(char *username,int client_sock){
     FILE *f = fopen("users.txt", "r");
     if(f == NULL){
         perror("Error in the file opening!");
-        exit(1);
+       // exit(1);
+       return ;
     }//end if 
 
     char line[BUFFER_SIZE];
@@ -29,7 +30,7 @@ void login(char *username,int client_sock){
         if(strcmp(line, username) == 0){
              write(client_sock, "Login successful!\n", strlen("Login successful!\n")); //send the message to the client
              fclose(f); 
-            return;
+            return ;
         }//end if 
         
     }//end while
@@ -41,6 +42,117 @@ fclose(f);
 return ; 
 
 }//end function login
+
+//this functions checks if the username exists
+//0 not exists, 1 exists
+int check_username(char* username){
+
+    //just to be sure
+    if(username == NULL || strlen(username) == 0){
+        return 0;
+    }//end if 
+
+    FILE *f = fopen("users.txt", "r");
+    if(f == NULL){
+        perror("Error in the file opening!");
+       // exit(1);
+       return 0;
+    }//end if 
+
+    char line[BUFFER_SIZE];
+    while(fgets(line, BUFFER_SIZE, f) != NULL){
+
+        line[strcspn(line, "\n")] = '\0'; //remove the newline character
+      //  line[strcspn(line, "\r\n")] = '\0'; // rimuove newline
+
+        if(strcmp(line, username) == 0){
+             
+             fclose(f); 
+            return 1;
+        }//end if 
+        
+    }//end while
+
+    
+ 
+fclose(f); 
+return 0; 
+
+}//end check_username
+
+
+//this functions checks if the permissions are valid
+//0 not valid , 1 valid
+
+int check_permissions(char *permissions){
+    if(permissions[0]>='0' && permissions[0] <= '7'){
+        if(permissions[1]>='0' && permissions[1] <= '7'){
+            if(permissions[2]>='0' && permissions[2] <= '7'){
+                return 1;
+            }//end if 
+        }//end if 
+    }//end if 
+
+
+    return 0;
+
+}//end check permissions
+
+
+//this function creates a new user
+void create_user(char* username, char* permissions,int client_sock){
+
+    if(username == NULL || strlen(username) == 0){
+        write(client_sock, "Insert Username!\n", strlen("Insert Username!\n")); //send the message to the client
+        return;
+    }//end if 
+
+    if(permissions == NULL || strlen(permissions) == 0){
+        write(client_sock, "Insert Permissions!\n", strlen("Insert Permissions!\n")); //send the message to the client
+        return;
+    }//end if 
+
+    //Here we write the username in the file users.txt
+    FILE *f = fopen("users.txt", "a");
+    if(f == NULL){
+        //perror("Error in the file opening!");
+        write(client_sock, "Error in the file opening!\n", strlen("Error in the file opening!\n")); //send the message to the client
+        //exit(1);
+    }//end if 
+
+    //check if the username already exists
+    if(check_username(username) == 1){
+        write(client_sock, "Username already exists!\n", strlen("Username already exists!\n")); //send the message to the client
+        return;
+    }//end if 
+
+    //check if the permission are valid
+    if(strlen(permissions)!=3){
+        write(client_sock, "Invalid Permissions (max 3 numbers and each number must be between 0 and 7 )!\n", strlen("Invalid Permissions (max 3 numbers and each number must be between 0 and 7 )!\n")); //send the message to the client
+        return;
+    }//end if 
+        
+    if(check_permissions(permissions)==0){
+        write(client_sock, "Invalid Permissions!\n", strlen("Invalid Permissions!\n")); //send the message to the client
+        return;
+    }//end if 
+
+    
+
+    fprintf(f, "%s", "\n"); //insert new line
+    fprintf(f, "%s", username); //write the username in the file
+    fclose(f); //close the file
+
+
+
+    write(client_sock, "User created successfully!\n", strlen("User created successfully!\n")); //send the message to the client
+    
+    //If I am here, the username is "valid" and we can create the user's home directory
+
+return;
+}//end function create_user
+
+
     
 /*This function is a the main function that handles the client,
 as we can see it has different behaviuors based on the message received  */
@@ -88,11 +200,14 @@ void handle_client(int client_sock){
         
              }else{
                 if(strcmp("create_user",firstToken)==0){
-                //test for create user
-                write(client_sock,"test create ok!\n",strlen("test create ok!\n"));
+                
+               //call the function for creating the user
+               create_user(secondToken,thirdToken,client_sock);
+
+
                 }else{
                 //if i am here, the user input is invalid
-                write(client_sock,"Invalid Command2!\n",strlen("Invalid Command2!\n"));
+                write(client_sock,"Invalid Command!\n",strlen("Invalid Command!\n"));
                 }//end nested else
 
              }//end else
@@ -100,8 +215,6 @@ void handle_client(int client_sock){
 
       
        
-
-        
 
     }//end while
 

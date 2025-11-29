@@ -1,5 +1,7 @@
 #!/bin/bash
 
+clear
+
 # Rimuovo i vecchi eseguibili
 rm -f client
 rm -f server
