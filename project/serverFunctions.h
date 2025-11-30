@@ -3,6 +3,8 @@
 
 #define BUFFER_SIZE 1024 //buffer size for the messages
 
+#include <sys/types.h>
+#include <sys/wait.h>
 #include "utils.h"
 #include "fileSystem.h"
 

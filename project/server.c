@@ -25,29 +25,28 @@ int main(int argc, char *argv[]){
     //default values
     char *server_ip = "127.0.0.1";
     int port = 8080;
+    char *root_dir = "./csap_root";
 
     //local buffer for exit
     char buffer[BUFFER_SIZE];
 
     //params are mandatory
-    if(argc != 3){
+    if(argc != 4){
         printf("Needs params!");
         exit(1);
     }//end if 
 
-    //check if the root directory exists, just a prototype
-    if(check_directory("./usersHome") == 0){
-        //create_directory("/root");
-        printf("Root directory does not exist\n");
-        exit(1);
+    //the first argument is the root directory, the second one is the ip address, the third one is the port
+    if (argc >= 2) root_dir = argv[1];
+    if (argc >= 3) server_ip = argv[2];
+    if (argc >= 4) port = atoi(argv[3]);
+
+    if (check_directory(root_dir) == 0){
+        if (create_directory(root_dir) == 0) {
+            perror("Error in the directory creation!");
+            exit(1);
+        }//end if 
     }//end if 
-
-
-   
-
-    //the first argument is the ip address, the second one is the port
-    if (argc >= 2) server_ip = argv[1];
-    if (argc >= 3) port = atoi(argv[2]);
 
     int server_sock = socket(AF_INET, SOCK_STREAM, 0);
 
