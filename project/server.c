@@ -36,6 +36,9 @@ int main(int argc, char *argv[]){
         exit(1);
     }//end if 
 
+    //debug
+    create_system_user("csap");
+
     //the first argument is the root directory, the second one is the ip address, the third one is the port
     if (argc >= 2) root_dir = argv[1];
     if (argc >= 3) server_ip = argv[2];

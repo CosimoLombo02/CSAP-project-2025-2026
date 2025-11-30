@@ -3,6 +3,7 @@
 
 #define BUFFER_SIZE 1024 //buffer size for the messages
 
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include "utils.h"
@@ -47,12 +48,6 @@ fclose(f);
 return ; 
 
 }//end function login
-
-
-
-
-
-
 
 //this function creates a new user
 void create_user(char* username, char* permissions,int client_sock){
@@ -192,3 +187,39 @@ int handle_exit(char *buffer){
     }//end if 
     return 0;
 }//end handle exit
+
+int create_system_user(char *username){
+    if (username == NULL || strlen(username) == 0) {
+    perror ("Invalid username");
+    return 0;
+   }
+
+pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork failed");
+        return 0;
+    }
+
+    if (pid == 0) {
+        //child: execute the command
+        execlp("sudo", "sudo", "adduser", "--disabled-password", username, (char *)NULL);
+        // if I get here, exec failed
+        perror("execlp failed");
+        _exit(1);
+    }
+
+    //parent: wait for the child
+    int status;
+    if (waitpid(pid, &status, 0) < 0) {
+        perror("waitpid failed");
+        return 0;
+    }
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        //adduser terminated with exit code 0
+        return 1;
+    } else {
+        fprintf(stderr, "adduser failed (status=%d)\n", status);
+        return 0;
+    }
+}
