@@ -19,22 +19,27 @@ int check_directory(char *path){
 }//end check_directory
 
 //create a directory
-int create_directory(char *directory){
+int create_directory(char *directory,mode_t permissions){
    if (directory == NULL || strlen(directory) == 0) {
     perror ("Invalid directory name");
     return 0;
    }
 
-   //create the directory with rwx permissions for the owner and group
-   //the first 0 is for the octal number
-   if (mkdir(directory, 0770) == 0){
+   printf("permissions: %d\n", permissions);
+   mode_t old_umask = umask(0);
+   if (mkdir(directory, permissions) == 0){
+    umask(old_umask);  
     return 1;
+
    }
 
    //if the directory already exists
    if (errno == EEXIST){
+    umask(old_umask);  
     return 1;
    }
+
+   umask(old_umask);  
 
    perror("Error in the directory creation!");
    return 0;

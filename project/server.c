@@ -25,7 +25,7 @@ int main(int argc, char *argv[]){
     //default values
     char *server_ip = "127.0.0.1";
     int port = 8080;
-    char *root_dir = "./csap_root";
+    char *root_dir = "./csap_root"; 
 
     //local buffer for exit
     char buffer[BUFFER_SIZE];
@@ -36,8 +36,7 @@ int main(int argc, char *argv[]){
         exit(1);
     }//end if 
 
-    //debug
-    create_system_user("csap");
+  
 
     //the first argument is the root directory, the second one is the ip address, the third one is the port
     if (argc >= 2) root_dir = argv[1];
@@ -45,7 +44,8 @@ int main(int argc, char *argv[]){
     if (argc >= 4) port = atoi(argv[3]);
 
     if (check_directory(root_dir) == 0){
-        if (create_directory(root_dir) == 0) {
+        if (create_directory(root_dir,0770) == 0) {  //create the directory with rwx permissions for the owner and group
+   //the first 0 is for the octal number
             perror("Error in the directory creation!");
             exit(1);
         }//end if 

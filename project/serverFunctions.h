@@ -9,22 +9,76 @@
 #include "utils.h"
 #include "fileSystem.h"
 
+/**
+This is a global variable that stores the username of the logged user */
+//char *loggedUser = NULL;
+
+
+
+
+
+
+//create a real user in the system
+int create_system_user(char *username){
+    if (username == NULL || strlen(username) == 0) {
+    perror ("Invalid username");
+    return 0;
+   }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork failed");
+        return 0;
+    }
+
+    if (pid == 0) {
+        uid_t ruid = getuid();
+        seteuid(0);       // up to root
+        //child: execute the command
+       execlp("sudo", "sudo", "adduser", "--disabled-password", "--gecos", "", username, "--ingroup","csapusers", (char *)NULL);
+
+        seteuid(ruid);    // back to non-root
+        // if I get here, exec failed
+        perror("execlp failed");
+        _exit(1);
+    }
+
+    //parent: wait for the child
+    int status;
+    if (waitpid(pid, &status, 0) < 0) {
+        perror("waitpid failed");
+        return 0;
+    }
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        //adduser terminated with exit code 0
+        return 1;
+    } else {
+        fprintf(stderr, "adduser failed (status=%d)\n", status);
+        return 0;
+    }
+}//end create user
+
+
+
+
+
 /*This function is a kind of login, if the username exits
 in the file users.txt it sends a success message to the client, otherwise 
 it sends a failure message */
-void login(char *username,int client_sock){
+char* login(char *username,int client_sock){
 
     //check if the username is null or made only by spaces
     if(username == NULL || strlen(username) == 0){
         write(client_sock, "Insert Username!\n", strlen("Insert Username!\n")); //send the message to the client
-        return;
+        return NULL;
     }//end if 
 
     FILE *f = fopen("users.txt", "r");
     if(f == NULL){
         perror("Error in the file opening!");
        // exit(1);
-       return ;
+       return NULL;
     }//end if 
 
     char line[BUFFER_SIZE];
@@ -36,7 +90,7 @@ void login(char *username,int client_sock){
         if(strcmp(line, username) == 0){
              write(client_sock, "Login successful!\n", strlen("Login successful!\n")); //send the message to the client
              fclose(f); 
-            return ;
+            return username ;
         }//end if 
         
     }//end while
@@ -45,7 +99,7 @@ void login(char *username,int client_sock){
     write(client_sock, "Login failed!\n", strlen("Login failed!\n")); //send the message to the client
  
 fclose(f); 
-return ; 
+return NULL ; 
 
 }//end function login
 
@@ -87,12 +141,19 @@ void create_user(char* username, char* permissions,int client_sock){
         return;
     }//end if 
 
+    //creation of the real user in the system
+     if(create_system_user(username)==0){
+        write(client_sock, "Error in the user creation!\n", strlen("Error in the user creation!\n")); //send the message to the client
+        return;
+    }//end if
     
 
     fprintf(f, "%s", "\n"); //insert new line
     fprintf(f, "%s", username); //write the username in the file
     fclose(f); //close the file
 
+
+   
 
 
     write(client_sock, "User created successfully!\n", strlen("User created successfully!\n")); //send the message to the client
@@ -145,7 +206,13 @@ void handle_client(int client_sock){
              if(strcmp("login",firstToken)==0){
                      
                    
-                    login(secondToken,client_sock);
+                    char * loggedUser = login(secondToken,client_sock);
+                   // printf("%s\n",loggedUser); //debug
+
+                    if(loggedUser==NULL) printf("NULL\n");
+                    else printf("%s\n",loggedUser);
+
+                   
 
         
              }else{
@@ -188,38 +255,3 @@ int handle_exit(char *buffer){
     return 0;
 }//end handle exit
 
-int create_system_user(char *username){
-    if (username == NULL || strlen(username) == 0) {
-    perror ("Invalid username");
-    return 0;
-   }
-
-pid_t pid = fork();
-    if (pid < 0) {
-        perror("fork failed");
-        return 0;
-    }
-
-    if (pid == 0) {
-        //child: execute the command
-        execlp("sudo", "sudo", "adduser", "--disabled-password", username, (char *)NULL);
-        // if I get here, exec failed
-        perror("execlp failed");
-        _exit(1);
-    }
-
-    //parent: wait for the child
-    int status;
-    if (waitpid(pid, &status, 0) < 0) {
-        perror("waitpid failed");
-        return 0;
-    }
-
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-        //adduser terminated with exit code 0
-        return 1;
-    } else {
-        fprintf(stderr, "adduser failed (status=%d)\n", status);
-        return 0;
-    }
-}
