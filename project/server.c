@@ -17,14 +17,32 @@
 #include <errno.h>
 #include "serverFunctions.h"
 
-//Global variables
-uid_t original_uid=0;
-gid_t original_gid=0;
 
+// Global variables
+uid_t original_uid = 0;
+gid_t original_gid = 0;
 
 //the client is handled by specific functions in serverFunctions.h
 
 int main(int argc, char *argv[]){
+
+    //get the uid and gid of the user that started the server
+    const char *sudo_uid = getenv("SUDO_UID");
+    const char *sudo_gid = getenv("SUDO_GID");
+
+    //debug
+    printf("Sudo UID: %s\n", sudo_uid);
+    printf("Sudo GID: %s\n", sudo_gid);
+
+    if (sudo_uid != NULL && sudo_gid != NULL) {
+        // server was launched with sudo: original user is SUDO_UID/SUDO_GID
+        original_uid = (uid_t)strtol(sudo_uid, NULL, 10);
+        original_gid = (gid_t)strtol(sudo_gid, NULL, 10);
+    } else {
+        // no sudo: fallback to current uid/gid
+        original_uid = getuid();
+        original_gid = getgid();
+    }
 
     //default values
     char *server_ip = "127.0.0.1";
@@ -57,8 +75,8 @@ int main(int argc, char *argv[]){
         }//end if 
     }//end if 
 
+    seteuid(strtol(sudo_uid, NULL, 10));
    
-    
 
     int server_sock = socket(AF_INET, SOCK_STREAM, 0);
 

@@ -12,20 +12,11 @@
 extern uid_t original_uid;
 extern gid_t original_gid;
 
-/**
-login req ----- if dir esiste ok altrimenti no
- */
-
-
-
-
-
-
 //create a real user in the system
 int create_system_user(char *username){
 
     //char *group = get_group();
-    gid_t group = getgid();
+    gid_t group = original_gid;
     char gid_str[32];
     snprintf(gid_str, sizeof(gid_str), "%d", group); 
  
@@ -200,10 +191,16 @@ void create_user(char* username, char* permissions,int client_sock){
     strcpy(path, "./");
     strncat(path, username, sizeof(path) - strlen(path) - 1);
     create_directory(path,strtol(permissions, NULL, 8));   //create the user's home directory
-    printf("%d\n", get_uid_by_username(username));
-    chown(path, get_uid_by_username(username), get_gid_by_username(username)); //changes the owner and group of the directory
-   
 
+    //debug
+    printf("Original UID: %d\n", original_uid);
+    printf("Original GID: %d\n", original_gid);
+
+    setuid(0);
+    
+    chown(path, get_uid_by_username(username), original_gid); //changes the owner and group of the directory
+   
+    setuid(original_uid);
 
     write(client_sock, "User created successfully!\n", strlen("User created successfully!\n")); //send the message to the client
     
