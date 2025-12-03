@@ -17,6 +17,10 @@
 #include <errno.h>
 #include "serverFunctions.h"
 
+//Global variables
+uid_t original_uid=0;
+gid_t original_gid=0;
+
 
 //the client is handled by specific functions in serverFunctions.h
 
@@ -43,13 +47,18 @@ int main(int argc, char *argv[]){
     if (argc >= 3) server_ip = argv[2];
     if (argc >= 4) port = atoi(argv[3]);
 
+
+
     if (check_directory(root_dir) == 0){
-        if (create_directory(root_dir,0770) == 0) {  //create the directory with rwx permissions for the owner and group
+        if (create_directory(root_dir,0755) == 0) {  //create the directory with rwx permissions for the owner and group
    //the first 0 is for the octal number
             perror("Error in the directory creation!");
             exit(1);
         }//end if 
     }//end if 
+
+   
+    
 
     int server_sock = socket(AF_INET, SOCK_STREAM, 0);
 

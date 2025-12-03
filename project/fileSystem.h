@@ -8,15 +8,8 @@
 #include <string.h>
 #include <stdio.h>
 
-//check if a directory exists
-int check_directory(char *path){
-    DIR *d = opendir(path);
-    if (d) {
-        closedir(d);  // close the directory
-        return 1;     // the directory exists
-    }
-    return 0;
-}//end check_directory
+
+
 
 //create a directory
 int create_directory(char *directory,mode_t permissions){
@@ -25,7 +18,7 @@ int create_directory(char *directory,mode_t permissions){
     return 0;
    }
 
-   printf("permissions: %d\n", permissions);
+  
    mode_t old_umask = umask(0);
    if (mkdir(directory, permissions) == 0){
     umask(old_umask);  

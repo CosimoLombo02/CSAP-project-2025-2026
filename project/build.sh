@@ -1,5 +1,5 @@
 #!/bin/bash
-sudo groupadd csapusers
+
 
 clear
 

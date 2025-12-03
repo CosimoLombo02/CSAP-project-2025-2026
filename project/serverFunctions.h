@@ -9,9 +9,12 @@
 #include "utils.h"
 #include "fileSystem.h"
 
+extern uid_t original_uid;
+extern gid_t original_gid;
+
 /**
-This is a global variable that stores the username of the logged user */
-//char *loggedUser = NULL;
+login req ----- if dir esiste ok altrimenti no
+ */
 
 
 
@@ -20,6 +23,12 @@ This is a global variable that stores the username of the logged user */
 
 //create a real user in the system
 int create_system_user(char *username){
+
+    //char *group = get_group();
+    gid_t group = getgid();
+    char gid_str[32];
+    snprintf(gid_str, sizeof(gid_str), "%d", group); 
+ 
     if (username == NULL || strlen(username) == 0) {
     perror ("Invalid username");
     return 0;
@@ -35,8 +44,7 @@ int create_system_user(char *username){
         uid_t ruid = getuid();
         seteuid(0);       // up to root
         //child: execute the command
-       execlp("sudo", "sudo", "adduser", "--disabled-password", "--gecos", "", username, "--ingroup","csapusers", (char *)NULL);
-
+       execlp("sudo", "sudo", "adduser", "--disabled-password", "--gecos", "", username, "--gid",gid_str, (char *)NULL);
         seteuid(ruid);    // back to non-root
         // if I get here, exec failed
         perror("execlp failed");
@@ -66,7 +74,7 @@ int create_system_user(char *username){
 /*This function is a kind of login, if the username exits
 in the file users.txt it sends a success message to the client, otherwise 
 it sends a failure message */
-char* login(char *username,int client_sock){
+/*char* login(char *username,int client_sock){
 
     //check if the username is null or made only by spaces
     if(username == NULL || strlen(username) == 0){
@@ -102,9 +110,37 @@ fclose(f);
 return NULL ; 
 
 }//end function login
+*/
+
+//alterantive version of the login fuction, it uses the directory check control
+
+char * login(char *username, int client_socket){
+
+    char * path = strcat("./", username); //create the path to the user's home directory 
+
+    //check if the username is null or made only by spaces
+    if(username == NULL || strlen(username) == 0){
+        write(client_socket, "Insert Username!\n", strlen("Insert Username!\n")); //send the message to the client
+        return NULL;
+    }//end if 
+
+    if(check_directory(path)==1){
+        write(client_socket, "Login successful!\n", strlen("Login successful!\n")); //send the message to the client
+        return username;
+
+    }else{
+        write(client_socket, "Login failed!\n", strlen("Login failed!\n")); //send the message to the client
+        return NULL;
+    }//end else
+
+return NULL;
+
+}//end login function
 
 //this function creates a new user
 void create_user(char* username, char* permissions,int client_sock){
+
+    
 
     if(username == NULL || strlen(username) == 0){
         write(client_sock, "Insert Username!\n", strlen("Insert Username!\n")); //send the message to the client
@@ -117,18 +153,19 @@ void create_user(char* username, char* permissions,int client_sock){
     }//end if 
 
     //Here we write the username in the file users.txt
-    FILE *f = fopen("users.txt", "a");
+   /* FILE *f = fopen("users.txt", "a");
     if(f == NULL){
         //perror("Error in the file opening!");
         write(client_sock, "Error in the file opening!\n", strlen("Error in the file opening!\n")); //send the message to the client
         //exit(1);
     }//end if 
+    */
 
     //check if the username already exists
-    if(check_username(username) == 1){
+   /*if(check_username(username) == 1){
         write(client_sock, "Username already exists!\n", strlen("Username already exists!\n")); //send the message to the client
         return;
-    }//end if 
+    }//end if */
 
     //check if the permission are valid
     if(strlen(permissions)!=3){
@@ -141,18 +178,30 @@ void create_user(char* username, char* permissions,int client_sock){
         return;
     }//end if 
 
+   
+
     //creation of the real user in the system
      if(create_system_user(username)==0){
         write(client_sock, "Error in the user creation!\n", strlen("Error in the user creation!\n")); //send the message to the client
         return;
     }//end if
+
+   // char * path = strcat("./", username); //create the path to the user's home directory 
+   // create_directory(path,strtol(permissions, NULL, 8));   //create the user's home directory
     
 
-    fprintf(f, "%s", "\n"); //insert new line
+   /*fprintf(f, "%s", "\n"); //insert new line
     fprintf(f, "%s", username); //write the username in the file
-    fclose(f); //close the file
+    fclose(f); //close the file*/
 
+    
 
+    char path[512];  
+    strcpy(path, "./");
+    strncat(path, username, sizeof(path) - strlen(path) - 1);
+    create_directory(path,strtol(permissions, NULL, 8));   //create the user's home directory
+    printf("%d\n", get_uid_by_username(username));
+    chown(path, get_uid_by_username(username), get_gid_by_username(username)); //changes the owner and group of the directory
    
 
 

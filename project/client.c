@@ -56,6 +56,10 @@ int main(int argc, char *argv[]){
     
     //If I am here the connection is working correctly
     printf("Connected to server at %s:%d\n", server_ip, port);
+   
+        
+
+
 
     char buffer[BUFFER_SIZE];
     
@@ -71,6 +75,9 @@ int main(int argc, char *argv[]){
             printf("Bye!\n"); //output on the console
             break;
         }//end if 
+
+        
+
 
         
 
