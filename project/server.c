@@ -31,6 +31,8 @@ int main(int argc, char *argv[]) {
     // server was launched with sudo: original user is SUDO_UID/SUDO_GID
     original_uid = (uid_t)strtol(sudo_uid, NULL, 10);
     original_gid = (gid_t)strtol(sudo_gid, NULL, 10);
+    setgid(original_gid);
+
   } else {
     // no sudo: fallback to current uid/gid
     original_uid = getuid();

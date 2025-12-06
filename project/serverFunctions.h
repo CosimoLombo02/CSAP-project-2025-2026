@@ -286,7 +286,7 @@ void handle_client(int client_sock) {
 
   char buffer[BUFFER_SIZE];
   int n;
-  char *loggedUser = NULL;
+  char loggedUser[64] = "";
 
   while ((n = read(client_sock, buffer, BUFFER_SIZE - 1)) > 0) {
     buffer[n] = '\0'; /*Terminates the buffer, maybe we can consider this as a
@@ -317,92 +317,157 @@ void handle_client(int client_sock) {
       fourthToken[strcspn(fourthToken, "\n")] = '\0';
     }
 
-    // printf("%d\n",strcmp(firstToken,"login")); //Debug
 
     if (strcmp("login", firstToken) == 0) {
 
-      loggedUser = login(secondToken, client_sock);
-       printf("%s\n",loggedUser);
+      char *tmp = login(secondToken, client_sock);
 
-    } else {
-      if (strcmp("create_user", firstToken) == 0) {
+      // if the login is successful we store the username in the loggedUser variable
+      if(tmp!=NULL){
+        strncpy(loggedUser, tmp, sizeof(loggedUser)-1);
+        loggedUser[sizeof(loggedUser)-1] = '\0';
+      }
+
+    } else if (strcmp("create_user", firstToken) == 0) {
 
         // call the function for creating the user
         create_user(secondToken, thirdToken, client_sock);
 
+    } else if (strcmp("create", firstToken) == 0) {
+
+      if (loggedUser[0] == '\0') { // if the user is not logged in
+        write(client_sock, "You are not logged in!\n", strlen("You are not logged in!\n"));
+    } else {
+      if (secondToken == NULL || strlen(secondToken) == 0) {
+        write(client_sock, "Insert path!\n", strlen("Insert path!\n"));
       } else {
-
-        if (strcmp(firstToken, "create") == 0) {
-          //If I am here, the user wnats to create a file or a directory in a specific path
-          if(loggedUser==NULL){
-            write(client_sock, "You are not logged in!\n", strlen("You are not logged in!\n"));
-            
-          }else{
-            if(secondToken==NULL || strlen(secondToken)==0){
-            write(client_sock, "Insert path!\n", strlen("Insert path!\n"));
-      
-          }else{
-            if(thirdToken==NULL || strlen(thirdToken)==0){
-            write(client_sock, "Insert permissions!\n", strlen("Insert permissions!\n"));
-            
-          }else{
-            if(check_permissions(thirdToken)==0){
-            write(client_sock, "Insert valid permissions!\n", strlen("Insert valid permissions!\n"));
-            
-          }else{
-            //-d option for the user
-          if(fourthToken!=NULL && strlen(fourthToken)!=0 && strcmp("-d",fourthToken)==0){
-            if (seteuid(0) == -1) { //up to root
-              perror("seteuid(0) failed");
-              
-            } // end if
-            
-            if(create_directory(secondToken,strtol(thirdToken, NULL, 8))==1){
-            chown(secondToken, get_uid_by_username(loggedUser), original_gid);
-            //debug 
-           
-            printf("%d\n",get_uid_by_username(loggedUser));
-            }else{
-              write(client_sock, "Error in the directory creation!\n", strlen("Error in the directory creation!\n"));
-              
-            } 
-
-            if (seteuid(original_uid) == -1) { //back to effective uid
-              perror("Error restoring effective UID");
-              
-            } // end if
-
-            
-          }//end if -d option
-          else{
-            //if I am here I create the file
-            write(client_sock, "undercostruction!\n", strlen("undercostruction!\n"));
-          }
-
-            
-          }
-
-          }
-
-          }
-            
-          }
-
-          
+       if (thirdToken == NULL || strlen(thirdToken) == 0) {
+        write(client_sock, "Insert permissions!\n",
+              strlen("Insert permissions!\n"));
+       } else {
+        if (check_permissions(thirdToken) == 0) {
+        write(client_sock, "Insert valid permissions!\n",
+              strlen("Insert valid permissions!\n"));
         } else {
-          // if i am here, the user input is invalid
-          write(client_sock, "Invalid Command!\n", strlen("Invalid Command!\n"));
-        }
+          
+          if(fourthToken!=NULL && strlen(fourthToken)!=0 && strcmp("-d",fourthToken)==0){
+
+            // up to root
+            if (seteuid(0) == -1) {
+              perror("seteuid(0) failed");
+              return;
+            } // end if seteuid
+            
+            // set the uid of the user
+            if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+              perror("seteuid(user) failed");
+              return;
+            } // end if seteuid
+
+            if(create_directory(secondToken,strtol(thirdToken, NULL, 8))==1){
+              write(client_sock, "Directory created successfully!\n", strlen("Directory created successfully!\n"));
+            } else {
+              write(client_sock, "Error in the directory creation!\n", strlen("Error in the directory creation!\n"));
+            }
+
+            // up to root
+            if (seteuid(0) == -1) {
+              perror("seteuid(0) failed");
+              return;
+            } // end if seteuid
+
+            // restore the original uid
+            if (seteuid(original_uid) == -1) {
+              perror("Error restoring effective UID");
+              return;
+            } // end if seteuid
+
+          } else {
+
+            // up to root
+            if (seteuid(0) == -1) {
+              perror("seteuid(0) failed");
+              return;
+            } // end if seteuid
+            
+            // set the uid of the user
+            if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+              perror("seteuid(user) failed");
+              return;
+            } // end if seteuid
+
+            if(create_file(secondToken,strtol(thirdToken, NULL, 8))==1){
+              write(client_sock, "File created successfully!\n", strlen("File created successfully!\n"));
+            } else {
+              write(client_sock, "Error in the file creation!\n", strlen("Error in the file creation!\n"));
+            }
+
+            // up to root
+            if (seteuid(0) == -1) {
+              perror("seteuid(0) failed");
+              return;
+            } // end if seteuid
+
+            // restore the original uid
+            if (seteuid(original_uid) == -1) {
+              perror("Error restoring effective UID");
+              return;
+            } // end if seteuid
+
+          } // end else fourthToken
 
 
 
+        } // end else check_permissions
 
-
-
+       } // end else thirdToken
         
-      } // end nested else 
+      } // end else secondToken
 
-    } // end else create user
+
+
+
+
+
+      
+    } // end main else loggedUser
+
+         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    } else {
+      // if i am here, the user input is invalid
+          write(client_sock, "Invalid Command!\n", strlen("Invalid Command!\n"));
+    }// end else login
 
   } // end while
 

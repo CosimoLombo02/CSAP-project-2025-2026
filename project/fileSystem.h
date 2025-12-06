@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <fcntl.h>
 
 // create a directory
 int create_directory(char *directory, mode_t permissions) {
@@ -32,3 +33,27 @@ int create_directory(char *directory, mode_t permissions) {
   perror("Error in the directory creation!");
   return 0;
 } // end create_directory
+
+// create a file
+int create_file(char *file, mode_t permissions) {
+  if (file == NULL || strlen(file) == 0) {
+    perror("Invalid file name");
+    return 0;
+  }
+
+  mode_t old_umask = umask(0);
+  if (open(file, O_CREAT | O_EXCL, permissions) >= 0) {
+    umask(old_umask);
+    return 1;
+  }
+
+  // if the file already exists
+  if (errno == EEXIST) {
+    umask(old_umask);
+    return 1;
+  }
+
+  umask(old_umask);
+  perror("Error in the file creation!");
+  return 0;
+} // end create_file
