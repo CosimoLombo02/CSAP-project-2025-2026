@@ -286,6 +286,7 @@ void handle_client(int client_sock) {
 
   char buffer[BUFFER_SIZE];
   int n;
+  char *loggedUser = NULL;
 
   while ((n = read(client_sock, buffer, BUFFER_SIZE - 1)) > 0) {
     buffer[n] = '\0'; /*Terminates the buffer, maybe we can consider this as a
@@ -299,6 +300,8 @@ void handle_client(int client_sock) {
     char *firstToken = strtok(buffer, " "); // first token is the command
     char *secondToken = strtok(NULL, " ");  // second token of the command
     char *thirdToken = strtok(NULL, " ");   // third token of the command
+    char *fourthToken = strtok(NULL, " ");  // fourth token of the command
+   
 
     // removes eventually \n
     if (firstToken != NULL) {
@@ -310,12 +313,16 @@ void handle_client(int client_sock) {
     if (thirdToken != NULL) {
       thirdToken[strcspn(thirdToken, "\n")] = '\0';
     }
+    if (fourthToken != NULL) {
+      fourthToken[strcspn(fourthToken, "\n")] = '\0';
+    }
 
     // printf("%d\n",strcmp(firstToken,"login")); //Debug
 
     if (strcmp("login", firstToken) == 0) {
 
-      char *loggedUser = login(secondToken, client_sock);
+      loggedUser = login(secondToken, client_sock);
+       printf("%s\n",loggedUser);
 
     } else {
       if (strcmp("create_user", firstToken) == 0) {
@@ -324,13 +331,81 @@ void handle_client(int client_sock) {
         create_user(secondToken, thirdToken, client_sock);
 
       } else {
-        // if i am here, the user input is invalid
-        write(client_sock, "Invalid Command!\n", strlen("Invalid Command!\n"));
-      } // end nested else
 
-    } // end else
+        if (strcmp(firstToken, "create") == 0) {
+          //If I am here, the user wnats to create a file or a directory in a specific path
+          if(loggedUser==NULL){
+            write(client_sock, "You are not logged in!\n", strlen("You are not logged in!\n"));
+            
+          }else{
+            if(secondToken==NULL || strlen(secondToken)==0){
+            write(client_sock, "Insert path!\n", strlen("Insert path!\n"));
+      
+          }else{
+            if(thirdToken==NULL || strlen(thirdToken)==0){
+            write(client_sock, "Insert permissions!\n", strlen("Insert permissions!\n"));
+            
+          }else{
+            if(check_permissions(thirdToken)==0){
+            write(client_sock, "Insert valid permissions!\n", strlen("Insert valid permissions!\n"));
+            
+          }else{
+            //-d option for the user
+          if(fourthToken!=NULL && strlen(fourthToken)!=0 && strcmp("-d",fourthToken)==0){
+            if (seteuid(0) == -1) { //up to root
+              perror("seteuid(0) failed");
+              
+            } // end if
+            
+            if(create_directory(secondToken,strtol(thirdToken, NULL, 8))==1){
+            chown(secondToken, get_uid_by_username(loggedUser), original_gid);
+            //debug 
+           
+            printf("%d\n",get_uid_by_username(loggedUser));
+            }else{
+              write(client_sock, "Error in the directory creation!\n", strlen("Error in the directory creation!\n"));
+              
+            } 
+
+            if (seteuid(original_uid) == -1) { //back to effective uid
+              perror("Error restoring effective UID");
+              
+            } // end if
+
+            
+          }//end if -d option
+          else{
+            //if I am here I create the file
+            write(client_sock, "undercostruction!\n", strlen("undercostruction!\n"));
+          }
+
+            
+          }
+
+          }
+
+          }
+            
+          }
+
+          
+        } else {
+          // if i am here, the user input is invalid
+          write(client_sock, "Invalid Command!\n", strlen("Invalid Command!\n"));
+        }
+
+
+
+
+
+
+        
+      } // end nested else 
+
+    } // end else create user
 
   } // end while
+
 
   close(client_sock);
   printf("Client disconnected\n"); // Debug
