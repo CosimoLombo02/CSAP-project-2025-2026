@@ -57,3 +57,30 @@ int create_file(char *file, mode_t permissions) {
   perror("Error in the file creation!");
   return 0;
 } // end create_file
+
+
+//function that change the current directory
+//if 1 success else fail
+int change_directory(char * path){
+
+  if (chdir(path) != 0) {
+        perror("chdir fallito");
+        return 0;
+    }
+
+    return 1;
+
+}//end change directory
+
+//function that returns the current working directory
+void cwd(int client_sock){
+  char cwd[1024];
+  if(getcwd(cwd, sizeof(cwd)) != NULL){
+    //printf("Current working dir: %s\n", cwd);
+    write(client_sock, cwd, strlen(cwd));
+    write(client_sock, "\n", 1);
+  }else{
+    write(client_sock, "Error in the cwd function!", strlen("Error in the cwd function!"));
+    return ;
+  }
+}//end fucntion cwd

@@ -61,46 +61,7 @@ int create_system_user(char *username) {
   }
 } // end create user
 
-/*This function is a kind of login, if the username exits
-in the file users.txt it sends a success message to the client, otherwise
-it sends a failure message */
-/*char* login(char *username,int client_sock){
 
-    //check if the username is null or made only by spaces
-    if(username == NULL || strlen(username) == 0){
-        write(client_sock, "Insert Username!\n", strlen("Insert Username!\n"));
-//send the message to the client return NULL;
-    }//end if
-
-    FILE *f = fopen("users.txt", "r");
-    if(f == NULL){
-        perror("Error in the file opening!");
-       // exit(1);
-       return NULL;
-    }//end if
-
-    char line[BUFFER_SIZE];
-    while(fgets(line, BUFFER_SIZE, f) != NULL){
-
-        line[strcspn(line, "\n")] = '\0'; //remove the newline character
-      //  line[strcspn(line, "\r\n")] = '\0'; // rimuove newline
-
-        if(strcmp(line, username) == 0){
-             write(client_sock, "Login successful!\n", strlen("Login
-successful!\n")); //send the message to the client fclose(f); return username ;
-        }//end if
-
-    }//end while
-
-    //If I am here the username does not exist
-    write(client_sock, "Login failed!\n", strlen("Login failed!\n")); //send the
-message to the client
-
-fclose(f);
-return NULL ;
-
-}//end function login
-*/
 
 // alterantive version of the login fuction, it uses the directory check control
 
@@ -113,22 +74,7 @@ char *login(char *username, int client_socket) {
     return NULL;
   } // end if
 
-  // PATH_MAX is a constant defined in limits.h
-  char path[PATH_MAX];
-
-  size_t root_len = strlen(root_directory); // length of the root directory
-  size_t user_len = strlen(username);       // length of the username
-
-  // check if the path is too long
-  if (root_len + 1 + user_len + 1 > sizeof(path)) {
-    write(client_socket, "Error: path too long\n",
-          strlen("Error: path too long\n"));
-    return NULL;
-  }
-
-  // create the path to the user's home directory
-  snprintf(path, root_len + 1 + user_len + 1, "%s/%s", root_directory,
-           username);
+  
 
   // up to root
   if (seteuid(0) == -1) {
@@ -136,7 +82,7 @@ char *login(char *username, int client_socket) {
     return NULL;
   } // end if
 
-  if (check_directory(path) == 1) {
+  if (check_directory(username) == 1) {
     write(client_socket, "Login successful!\n",
           strlen("Login successful!\n")); // send the message to the client
 
@@ -182,21 +128,6 @@ void create_user(char *username, char *permissions, int client_sock) {
     return;
   } // end if
 
-  // Here we write the username in the file users.txt
-  /* FILE *f = fopen("users.txt", "a");
-   if(f == NULL){
-       //perror("Error in the file opening!");
-       write(client_sock, "Error in the file opening!\n", strlen("Error in the
-   file opening!\n")); //send the message to the client
-       //exit(1);
-   }//end if
-   */
-
-  // check if the username already exists
-  /*if(check_username(username) == 1){
-       write(client_sock, "Username already exists!\n", strlen("Username already
-   exists!\n")); //send the message to the client return;
-   }//end if */
 
   // check if the permission are valid
   if (strlen(permissions) != 3) {
@@ -223,29 +154,7 @@ void create_user(char *username, char *permissions, int client_sock) {
     return;
   } // end if
 
-  // char * path = strcat("./", username); //create the path to the user's home
-  // directory create_directory(path,strtol(permissions, NULL, 8));   //create
-  // the user's home directory
-
-  /*fprintf(f, "%s", "\n"); //insert new line
-   fprintf(f, "%s", username); //write the username in the file
-   fclose(f); //close the file*/
-
-  char path[PATH_MAX];
-
-  size_t root_len = strlen(root_directory); // length of the root directory
-  size_t user_len = strlen(username);       // length of the username
-
-  // check if the path is too long
-  if (root_len + 1 + user_len + 1 > sizeof(path)) {
-    write(client_sock, "Error: path too long\n",
-          strlen("Error: path too long\n"));
-    return;
-  } // end if
-
-  snprintf(path, root_len + 1 + user_len + 1, "%s/%s", root_directory,
-           username); // create the path to the user's home directory
-
+  
   // up to root
   if (seteuid(0) == -1) {
     perror("seteuid(0) failed");
@@ -253,7 +162,7 @@ void create_user(char *username, char *permissions, int client_sock) {
   } // end if
 
   // create the user's home directory
-  if (!create_directory(path, strtol(permissions, NULL, 8))) {
+  if (!create_directory(username, strtol(permissions, NULL, 8))) {
 
     // if create_directory fails, we restore the original uid
     if (seteuid(original_uid) == -1) {
@@ -265,7 +174,7 @@ void create_user(char *username, char *permissions, int client_sock) {
     return;
   } // end if
 
-  chown(path, get_uid_by_username(username),
+  chown(username, get_uid_by_username(username),
         original_gid); // changes the owner and group of the directory
 
   if (seteuid(original_uid) == -1) {
@@ -288,7 +197,10 @@ void handle_client(int client_sock) {
   int n;
   char loggedUser[64] = "";
 
+  
+
   while ((n = read(client_sock, buffer, BUFFER_SIZE - 1)) > 0) {
+   
     buffer[n] = '\0'; /*Terminates the buffer, maybe we can consider this as a
     buffer overflow security measure ?
     */
@@ -432,41 +344,34 @@ void handle_client(int client_sock) {
       
     } // end main else loggedUser
 
-         
+  }else if(strcmp(firstToken,"cd")==0){
+  
+        if(loggedUser[0]=='\0'){
+          write(client_sock, "You are not logged in!\n", strlen("You are not logged in!\n"));
+        }else{
+          if(secondToken==NULL || strlen(secondToken)==0){
+            write(client_sock, "Insert path!\n", strlen("Insert path!\n"));
+          }else{
+            if(change_directory(secondToken)==1){
+              write(client_sock, "Directory changed successfully!\n", strlen("Directory changed successfully!\n"));
+            }else{
+              write(client_sock, "Error in the directory change!\n", strlen("Error in the directory change!\n"));
+            }
+            
+          }//end else secondToken
 
+        }//end else loggedUser cd
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+      
     } else {
-      // if i am here, the user input is invalid
-          write(client_sock, "Invalid Command!\n", strlen("Invalid Command!\n"));
+
+      write(client_sock, "Invalid Command!\n", strlen("Invalid Command!\n"));
+
+
+
+
+
+      
     }// end else login
 
   } // end while

@@ -78,6 +78,13 @@ int main(int argc, char *argv[]) {
   strncpy(root_directory, root_dir, PATH_MAX);
   root_directory[PATH_MAX - 1] = '\0'; // Ensure null-termination
 
+  //change to root directory
+  if (change_directory(root_dir) == 0) {
+    perror("Error in the directory change!");
+    exit(1);
+  } // end if
+
+  
   // set the uid and gid of the server
   seteuid(original_uid);
 
