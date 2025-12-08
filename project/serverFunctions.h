@@ -13,6 +13,7 @@
 extern uid_t original_uid;
 extern gid_t original_gid;
 extern char root_directory[PATH_MAX];
+char loggedUser[64] = "";
 
 // create a real user in the system
 int create_system_user(char *username) {
@@ -69,8 +70,7 @@ char *login(char *username, int client_socket) {
 
   // check if the username is null or made only by spaces
   if (username == NULL || strlen(username) == 0) {
-    write(client_socket, "Insert Username!\n",
-          strlen("Insert Username!\n")); // send the message to the client
+    send_with_cwd(client_socket, "Insert Username!\n", loggedUser); // send the message to the client
     return NULL;
   } // end if
 
@@ -83,8 +83,7 @@ char *login(char *username, int client_socket) {
   } // end if
 
   if (check_directory(username) == 1) {
-    write(client_socket, "Login successful!\n",
-          strlen("Login successful!\n")); // send the message to the client
+    send_with_cwd(client_socket, "Login successful!\n", username); // send the message to the client
 
     // back to non-root
     if (seteuid(original_uid) == -1) {
@@ -96,8 +95,7 @@ char *login(char *username, int client_socket) {
     return username;
 
   } else {
-    write(client_socket, "Login failed!\n",
-          strlen("Login failed!\n")); // send the message to the client
+    send_with_cwd(client_socket, "Login failed!\n", loggedUser); // send the message to the client
 
     // back to non-root
     if (seteuid(original_uid) == -1) {
@@ -117,40 +115,33 @@ char *login(char *username, int client_socket) {
 void create_user(char *username, char *permissions, int client_sock) {
 
   if (username == NULL || strlen(username) == 0) {
-    write(client_sock, "Insert Username!\n",
-          strlen("Insert Username!\n")); // send the message to the client
+    send_with_cwd(client_sock, "Insert Username!\n", loggedUser); // send the message to the client
     return;
   } // end if
 
   if (permissions == NULL || strlen(permissions) == 0) {
-    write(client_sock, "Insert Permissions!\n",
-          strlen("Insert Permissions!\n")); // send the message to the client
+    send_with_cwd(client_sock, "Insert Permissions!\n", loggedUser); // send the message to the client
     return;
   } // end if
 
 
   // check if the permission are valid
   if (strlen(permissions) != 3) {
-    write(client_sock,
+    send_with_cwd(client_sock,
           "Invalid Permissions (max 3 numbers and each number must be between "
           "0 and 7 )!\n",
-          strlen("Invalid Permissions (max 3 numbers and each number must be "
-                 "between 0 and 7 )!\n")); // send the message to the client
+          loggedUser); // send the message to the client
     return;
   } // end if
 
   if (check_permissions(permissions) == 0) {
-    write(client_sock, "Invalid Permissions!\n",
-          strlen("Invalid Permissions!\n")); // send the message to the client
+    send_with_cwd(client_sock, "Invalid Permissions!\n", loggedUser); // send the message to the client
     return;
   } // end if
 
   // creation of the real user in the system
   if (create_system_user(username) == 0) {
-    write(
-        client_sock, "Error in the user creation!\n",
-        strlen(
-            "Error in the user creation!\n")); // send the message to the client
+    send_with_cwd(client_sock, "Error in the user creation!\n", loggedUser); // send the message to the client
     return;
   } // end if
 
@@ -169,8 +160,7 @@ void create_user(char *username, char *permissions, int client_sock) {
       perror("Error restoring effective UID");
       return;
     } // end if
-    write(client_sock, "Error in the home directory creation!\n",
-          strlen("Error in the home directory creation!\n"));
+    send_with_cwd(client_sock, "Error in the home directory creation!\n", loggedUser); // send the message to the client
     return;
   } // end if
 
@@ -182,9 +172,7 @@ void create_user(char *username, char *permissions, int client_sock) {
     return;
   } // end if
 
-  write(
-      client_sock, "User created successfully!\n",
-      strlen("User created successfully!\n")); // send the message to the client
+  send_with_cwd(client_sock, "User created successfully!\n", loggedUser); // send the message to the client
 
   return;
 } // end function create_user
@@ -195,7 +183,6 @@ void handle_client(int client_sock) {
 
   char buffer[BUFFER_SIZE];
   int n;
-  char loggedUser[64] = "";
 
   
 
@@ -248,18 +235,16 @@ void handle_client(int client_sock) {
     } else if (strcmp("create", firstToken) == 0) {
 
       if (loggedUser[0] == '\0') { // if the user is not logged in
-        write(client_sock, "You are not logged in!\n", strlen("You are not logged in!\n"));
+        send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
     } else {
       if (secondToken == NULL || strlen(secondToken) == 0) {
-        write(client_sock, "Insert path!\n", strlen("Insert path!\n"));
+        send_with_cwd(client_sock, "Insert path!\n", loggedUser);
       } else {
        if (thirdToken == NULL || strlen(thirdToken) == 0) {
-        write(client_sock, "Insert permissions!\n",
-              strlen("Insert permissions!\n"));
+        send_with_cwd(client_sock, "Insert permissions!\n", loggedUser);
        } else {
         if (check_permissions(thirdToken) == 0) {
-        write(client_sock, "Insert valid permissions!\n",
-              strlen("Insert valid permissions!\n"));
+        send_with_cwd(client_sock, "Insert valid permissions!\n", loggedUser);
         } else {
           
           if(fourthToken!=NULL && strlen(fourthToken)!=0 && strcmp("-d",fourthToken)==0){
@@ -277,9 +262,9 @@ void handle_client(int client_sock) {
             } // end if seteuid
 
             if(create_directory(secondToken,strtol(thirdToken, NULL, 8))==1){
-              write(client_sock, "Directory created successfully!\n", strlen("Directory created successfully!\n"));
+              send_with_cwd(client_sock, "Directory created successfully!\n", loggedUser);
             } else {
-              write(client_sock, "Error in the directory creation!\n", strlen("Error in the directory creation!\n"));
+              send_with_cwd(client_sock, "Error in the directory creation!\n", loggedUser);
             }
 
             // up to root
@@ -309,9 +294,9 @@ void handle_client(int client_sock) {
             } // end if seteuid
 
             if(create_file(secondToken,strtol(thirdToken, NULL, 8))==1){
-              write(client_sock, "File created successfully!\n", strlen("File created successfully!\n"));
+              send_with_cwd(client_sock, "File created successfully!\n", loggedUser);
             } else {
-              write(client_sock, "Error in the file creation!\n", strlen("Error in the file creation!\n"));
+              send_with_cwd(client_sock, "Error in the file creation!\n", loggedUser);
             }
 
             // up to root
@@ -347,15 +332,15 @@ void handle_client(int client_sock) {
   }else if(strcmp(firstToken,"cd")==0){
   
         if(loggedUser[0]=='\0'){
-          write(client_sock, "You are not logged in!\n", strlen("You are not logged in!\n"));
+          send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
         }else{
           if(secondToken==NULL || strlen(secondToken)==0){
-            write(client_sock, "Insert path!\n", strlen("Insert path!\n"));
+            send_with_cwd(client_sock, "Insert path!\n", loggedUser);
           }else{
             if(change_directory(secondToken)==1){
-              write(client_sock, "Directory changed successfully!\n", strlen("Directory changed successfully!\n"));
+              send_with_cwd(client_sock, "Directory changed successfully!\n", loggedUser);
             }else{
-              write(client_sock, "Error in the directory change!\n", strlen("Error in the directory change!\n"));
+              send_with_cwd(client_sock, "Error in the directory change!\n", loggedUser);
             }
             
           }//end else secondToken
@@ -365,7 +350,7 @@ void handle_client(int client_sock) {
       
     } else {
 
-      write(client_sock, "Invalid Command!\n", strlen("Invalid Command!\n"));
+      send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
 
 
 
@@ -374,6 +359,12 @@ void handle_client(int client_sock) {
       
     }// end else login
 
+    /*
+    // send the prompt only if the user is logged in
+    if (loggedUser[0] != '\0') {
+        cwd(client_sock);
+    }
+    */
   } // end while
 
 

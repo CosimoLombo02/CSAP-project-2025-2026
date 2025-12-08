@@ -72,6 +72,8 @@ int change_directory(char * path){
 
 }//end change directory
 
+
+/*
 //function that returns the current working directory
 void cwd(int client_sock){
   char cwd[1024];
@@ -84,3 +86,34 @@ void cwd(int client_sock){
     return ;
   }
 }//end fucntion cwd
+*/
+
+// manda al client: "<msg>\n<cwd> > "
+void send_with_cwd(int client_sock, const char *msg, char *loggedUser) {
+  if (loggedUser[0] == '\0') {
+    write(client_sock, msg, strlen(msg));
+    return;
+  }
+    char cwd_buf[PATH_MAX];
+    char out[BUFFER_SIZE];
+
+    out[0] = '\0';
+
+    // parte del messaggio, se presente
+    if (msg != NULL && msg[0] != '\0') {
+        // aggiungo il messaggio + newline
+        snprintf(out, sizeof(out), "%s\n", msg);
+    }
+
+    // aggiungo la cwd + " > "
+    if (getcwd(cwd_buf, sizeof(cwd_buf)) != NULL) {
+        size_t len = strlen(out);
+        snprintf(out + len, sizeof(out) - len, "%s > ", cwd_buf);
+    } else {
+        size_t len = strlen(out);
+        snprintf(out + len, sizeof(out) - len, "> ");
+    }
+
+    // una sola write con TUTTO dentro
+    write(client_sock, out, strlen(out));
+}
