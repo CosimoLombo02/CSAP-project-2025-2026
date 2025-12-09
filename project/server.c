@@ -19,6 +19,7 @@
 uid_t original_uid = 0;
 gid_t original_gid = 0;
 char root_directory[PATH_MAX];
+char original_cwd[PATH_MAX];
 
 // the client is handled by specific functions in serverFunctions.h
 int main(int argc, char *argv[]) {
@@ -84,7 +85,8 @@ int main(int argc, char *argv[]) {
     exit(1);
   } // end if
 
-  
+  getcwd(original_cwd, PATH_MAX);
+
   // set the uid and gid of the server
   seteuid(original_uid);
 

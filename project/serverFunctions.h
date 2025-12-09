@@ -14,6 +14,7 @@ extern uid_t original_uid;
 extern gid_t original_gid;
 extern char root_directory[PATH_MAX];
 char loggedUser[64] = "";
+char loggedCwd[PATH_MAX] = "";
 
 // create a real user in the system
 int create_system_user(char *username) {
@@ -74,7 +75,6 @@ char *login(char *username, int client_socket) {
     return NULL;
   } // end if
 
-  
 
   // up to root
   if (seteuid(0) == -1) {
@@ -83,7 +83,11 @@ char *login(char *username, int client_socket) {
   } // end if
 
   if (check_directory(username) == 1) {
+    change_directory(username);
     send_with_cwd(client_socket, "Login successful!\n", username); // send the message to the client
+
+    strncpy(loggedCwd, getcwd(NULL, 0), sizeof(loggedCwd)-1);
+    loggedCwd[sizeof(loggedCwd)-1] = '\0';
 
     // back to non-root
     if (seteuid(original_uid) == -1) {
@@ -321,11 +325,6 @@ void handle_client(int client_sock) {
         
       } // end else secondToken
 
-
-
-
-
-
       
     } // end main else loggedUser
 
@@ -337,7 +336,7 @@ void handle_client(int client_sock) {
           if(secondToken==NULL || strlen(secondToken)==0){
             send_with_cwd(client_sock, "Insert path!\n", loggedUser);
           }else{
-            if(change_directory(secondToken)==1){
+            if(resolve_and_check_path(secondToken, loggedCwd, "cd")==1 && change_directory(secondToken)==1){
               send_with_cwd(client_sock, "Directory changed successfully!\n", loggedUser);
             }else{
               send_with_cwd(client_sock, "Error in the directory change!\n", loggedUser);
@@ -346,25 +345,9 @@ void handle_client(int client_sock) {
           }//end else secondToken
 
         }//end else loggedUser cd
-
-      
     } else {
-
       send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
-
-
-
-
-
-      
     }// end else login
-
-    /*
-    // send the prompt only if the user is logged in
-    if (loggedUser[0] != '\0') {
-        cwd(client_sock);
-    }
-    */
   } // end while
 
 

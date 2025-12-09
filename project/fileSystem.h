@@ -72,23 +72,7 @@ int change_directory(char * path){
 
 }//end change directory
 
-
-/*
-//function that returns the current working directory
-void cwd(int client_sock){
-  char cwd[1024];
-  if(getcwd(cwd, sizeof(cwd)) != NULL){
-    //printf("Current working dir: %s\n", cwd);
-    write(client_sock, cwd, strlen(cwd));
-    write(client_sock, "\n", 1);
-  }else{
-    write(client_sock, "Error in the cwd function!", strlen("Error in the cwd function!"));
-    return ;
-  }
-}//end fucntion cwd
-*/
-
-// manda al client: "<msg>\n<cwd> > "
+// send to the client: "<msg>\n<cwd> > "
 void send_with_cwd(int client_sock, const char *msg, char *loggedUser) {
   if (loggedUser[0] == '\0') {
     write(client_sock, msg, strlen(msg));
@@ -99,13 +83,13 @@ void send_with_cwd(int client_sock, const char *msg, char *loggedUser) {
 
     out[0] = '\0';
 
-    // parte del messaggio, se presente
+    // add the message, if present
     if (msg != NULL && msg[0] != '\0') {
-        // aggiungo il messaggio + newline
+        // add the message + newline
         snprintf(out, sizeof(out), "%s\n", msg);
     }
 
-    // aggiungo la cwd + " > "
+    // add the cwd + " > "
     if (getcwd(cwd_buf, sizeof(cwd_buf)) != NULL) {
         size_t len = strlen(out);
         snprintf(out + len, sizeof(out) - len, "%s > ", cwd_buf);
@@ -114,6 +98,6 @@ void send_with_cwd(int client_sock, const char *msg, char *loggedUser) {
         snprintf(out + len, sizeof(out) - len, "> ");
     }
 
-    // una sola write con TUTTO dentro
+    // just one write
     write(client_sock, out, strlen(out));
 }

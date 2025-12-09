@@ -5,49 +5,11 @@
 #include <grp.h>
 #include <pwd.h>
 
-// this functions checks if the username exists
-// 0 not exists, 1 exists
-// probably useless
-/*int check_username(char* username){
-
-    //just to be sure
-    if(username == NULL || strlen(username) == 0){
-        return 0;
-    }//end if
-
-   FILE *f = fopen("users.txt", "r");
-    if(f == NULL){
-        perror("Error in the file opening!");
-       // exit(1);
-       return 0;
-    }//end if
-
-
-    char line[BUFFER_SIZE];
-    while(fgets(line, BUFFER_SIZE, f) != NULL){
-
-        line[strcspn(line, "\n")] = '\0'; //remove the newline character
-      //  line[strcspn(line, "\r\n")] = '\0'; // rimuove newline
-
-        if(strcmp(line, username) == 0){
-
-             fclose(f);
-            return 1;
-        }//end if
-
-    }//end while
-
-
-
-fclose(f);
-return 0;
-
-}//end check_username
-*/
+// global variables
+extern char original_cwd[PATH_MAX];
 
 // this functions checks if the permissions are valid
 // 0 not valid , 1 valid
-
 int check_permissions(char *permissions) {
   if (permissions[0] >= '0' && permissions[0] <= '7') {
     if (permissions[1] >= '0' && permissions[1] <= '7') {
@@ -128,3 +90,66 @@ gid_t get_gid_by_username(char *username) {
 
   return pwd->pw_gid;
 } // end get_gid_by_username
+
+// this function removes the prefix from a string
+char *remove_prefix(const char *str, const char *prefix) {
+    size_t len_prefix = strlen(prefix);
+
+    // prefix must be the start of str
+    if (strncmp(str, prefix, len_prefix) == 0) {
+
+        // If there is a slash immediately after the prefix, we skip it
+        if (str[len_prefix] == '/')
+            return (char *)(str + len_prefix); 
+
+        return (char *)(str + len_prefix); 
+    }
+
+    // if there is no prefix, return the string as it is
+    return (char *)str;
+} // end remove_prefix
+
+
+// this function resolves and checks a path
+// 0 not valid, 1 valid
+int resolve_and_check_path(const char *input, const char *loggedCwd, const char *command) {
+  char absolute_path[PATH_MAX];
+
+  if (strcmp(command, "ls") != 0) {
+
+    // resolve the path
+    if (realpath(input, absolute_path) == NULL) {
+        return 0;
+    }
+
+    //debug
+    printf("Path resolved: %s\n", absolute_path);
+    printf("Logged CWD: %s\n", loggedCwd);
+    printf("Input: %s\n", input);
+
+    // check if the path is inside the sandbox
+    size_t root_len = strlen(loggedCwd);
+
+    if (strncmp(absolute_path, loggedCwd, root_len) != 0) {
+        return 0; // path outside the sandbox
+    }
+
+    
+  } else {
+    
+  // resolve the path
+    if (realpath(input, absolute_path) == NULL) {
+        return 0;
+    }
+
+    // check if the path is inside the sandbox
+    size_t root_len = strlen(original_cwd);
+
+    if (strncmp(absolute_path, original_cwd, root_len) != 0) {
+        return 0; // path outside the sandbox
+    }
+  }
+  return 1;
+    
+} // end resolve_and_check_path
+
