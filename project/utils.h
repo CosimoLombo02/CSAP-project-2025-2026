@@ -115,7 +115,7 @@ char *remove_prefix(const char *str, const char *prefix) {
 int resolve_and_check_path(const char *input, const char *loggedCwd, const char *command) {
   char absolute_path[PATH_MAX];
 
-  if (strcmp(command, "ls") != 0) {
+  if (strcmp(command, "list") != 0) {
 
     // resolve the path
     if (realpath(input, absolute_path) == NULL) {

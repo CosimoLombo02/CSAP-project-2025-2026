@@ -346,7 +346,25 @@ void handle_client(int client_sock) {
 
         }//end else loggedUser cd
     } else {
-      send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
+      if(strcmp(firstToken,"list")==0){
+        if(loggedUser[0]=='\0'){
+          send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+        }else{//here we have to implement the sandbox check
+          char out[8192];
+          if(secondToken==NULL || strlen(secondToken)==0){
+            list_directory_string(".", out, sizeof(out));
+          }else{
+            list_directory_string(secondToken, out, sizeof(out));
+          }
+         // write(client_sock, out, strlen(out));
+          send_with_cwd(client_sock, out, loggedUser);
+          //printf("%s", out);
+          
+        }//end else logged user list
+
+      }else{
+        send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
+      }//end else list invalid command
     }// end else login
   } // end while
 
