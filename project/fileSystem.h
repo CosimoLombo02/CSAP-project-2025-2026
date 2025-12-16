@@ -12,6 +12,8 @@
 #include <pwd.h> 
 #include <grp.h> 
 
+extern char start_cwd[PATH_MAX];
+
 // create a directory
 int create_directory(char *directory, mode_t permissions) {
   if (directory == NULL || strlen(directory) == 0) {
@@ -95,7 +97,18 @@ void send_with_cwd(int client_sock, const char *msg, char *loggedUser) {
     // add the cwd + " > "
     if (getcwd(cwd_buf, sizeof(cwd_buf)) != NULL) {
         size_t len = strlen(out);
-        snprintf(out + len, sizeof(out) - len, "%s > ", cwd_buf);
+
+        char *pos = strstr(cwd_buf, start_cwd);
+
+    if (pos != NULL) {
+        memmove(
+            pos,
+            pos + strlen(start_cwd),
+            strlen(pos + strlen(start_cwd)) + 1
+        );
+    }
+
+        snprintf(out + len, sizeof(out) - len, "%s > ", pos);
     } else {
         size_t len = strlen(out);
         snprintf(out + len, sizeof(out) - len, "> ");
@@ -243,10 +256,51 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
 }//end list directory string
 
 
-//this functions upload a file to the server via socket
-int upload_file(int client_sock, char *clientPath, char *serverPath) {
+void handle_upload(int client_sock, char *server_path, char* client_path) {
+  strcat(server_path,"/");
+  strcat(server_path, basename(client_path));
 
-  
+  FILE *fd = fopen(server_path, "w");
 
-}//end upload file
+  if (fd == NULL) {
+    send(client_sock, "Error opening server file\n", strlen("Error opening server file\n"), 0);
+    return;
+  }
+
+  // send ready message to client
+  strcat(client_path," READY!\n");
+
+  printf("Client path: %s\n", client_path); // Debug
+
+  send(client_sock, client_path, strlen(client_path), 0);
+
+  uint64_t net_size;
+  if (recv(client_sock, &net_size, sizeof(net_size),MSG_WAITALL) != sizeof(net_size)) {
+    fclose(fd);
+    return;
+  }
+
+  uint64_t file_size = be64toh(net_size);
+
+  char buffer[BUFFER_SIZE];
+  uint64_t bytes_received = 0;
+
+  while (bytes_received < file_size) {
+    ssize_t to_read = sizeof(buffer);
+    if (to_read > file_size - bytes_received) {
+      to_read = file_size - bytes_received;
+    }
+    
+    ssize_t n = recv(client_sock, buffer, to_read, 0);
+    if (n <= 0) {
+      fclose(fd);
+      return;
+    }
+    fwrite(buffer, 1, n, fd);
+    bytes_received += n;
+  }
+
+  fclose(fd);
+  send(client_sock, "OK\n", strlen("OK\n"), 0);
+}
     

@@ -20,9 +20,12 @@ uid_t original_uid = 0;
 gid_t original_gid = 0;
 char root_directory[PATH_MAX];
 char original_cwd[PATH_MAX];
+char start_cwd[PATH_MAX];
 
 // the client is handled by specific functions in serverFunctions.h
 int main(int argc, char *argv[]) {
+
+  strncpy(start_cwd, getcwd(original_cwd, PATH_MAX), PATH_MAX);
 
   // get the uid and gid of the user that started the server
   const char *sudo_uid = getenv("SUDO_UID");

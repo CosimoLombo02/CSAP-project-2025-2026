@@ -89,6 +89,14 @@ int main(int argc, char *argv[]) {
     buffer[n] = '\0';     // string terminator
     printf("%s", buffer); // Debug
 
+
+    char *firstToken = strtok(buffer, " ");
+    char *secondToken = strtok(NULL, " ");
+
+    if (strcmp(secondToken, "READY!") == 0) {
+      client_upload(firstToken, sock);
+    } // end if
+
   } // end while
 
   close(sock); // closes the socket
