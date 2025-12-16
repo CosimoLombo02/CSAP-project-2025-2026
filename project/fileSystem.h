@@ -241,3 +241,12 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
 
     closedir(dir);
 }//end list directory string
+
+
+//this functions upload a file to the server via socket
+int upload_file(int client_sock, char *clientPath, char *serverPath) {
+
+  
+
+}//end upload file
+    

@@ -352,17 +352,53 @@ void handle_client(int client_sock) {
         }else{//here we have to implement the sandbox check
           char out[8192];
           if(secondToken==NULL || strlen(secondToken)==0){
+            
             list_directory_string(".", out, sizeof(out));
           }else{
-            list_directory_string(secondToken, out, sizeof(out));
-          }
-         // write(client_sock, out, strlen(out));
-          send_with_cwd(client_sock, out, loggedUser);
-          //printf("%s", out);
+            if(resolve_and_check_path(secondToken, loggedCwd, "list")==1){
+              list_directory_string(secondToken, out, sizeof(out));
+              send_with_cwd(client_sock, out, loggedUser);
+            }else{
+              send_with_cwd(client_sock, "Error in the directory listing!\n", loggedUser);
+            }//end else directory listing
+          }//end else secondToken
+         
           
         }//end else logged user list
 
+    }else if(strcmp(firstToken,"upload")==0){
+      if(loggedUser[0]=='\0'){
+        send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
       }else{
+        if(secondToken==NULL || strlen(secondToken)==0){
+          send_with_cwd(client_sock, "Insert client path!\n", loggedUser);
+        }else{
+          if(thirdToken==NULL || strlen(thirdToken)==0){
+            send_with_cwd(client_sock, "Insert server path!\n", loggedUser);
+          }else{
+            if(fourthToken==NULL || strlen(fourthToken)==0){
+              if(resolve_and_check_path(thirdToken, loggedCwd, "upload")==1){
+
+               //call function 
+               send_with_cwd(client_sock, "test senza background!\n", loggedUser);
+              }else{
+                send_with_cwd(client_sock, "Error in the file upload!\n", loggedUser);
+              }
+              
+            }else{
+              //if i am here i have to perform this operation in background
+              if(resolve_and_check_path(thirdToken, loggedCwd, "upload")==1 && strcmp(fourthToken,"-b")==0){
+                //call the function with background
+                send_with_cwd(client_sock, "test con background!", loggedUser);
+              }else{
+                send_with_cwd(client_sock, "Error in the file upload!", loggedUser);
+              }
+            }//end else fourthToken
+          }//end else thirdToken
+          
+        }//end else secondToken
+      }//end else loggedUser upload
+    }else{
         send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
       }//end else list invalid command
     }// end else login

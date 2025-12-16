@@ -39,13 +39,13 @@ int check_directory(char *path) {
 int check_username(char *username) {
   char path[512]; // buffer sufficientemente grande
 
-  // Copia "./" nel buffer
+  // copies "./" in the path
   strcpy(path, "./");
 
-  // Aggiunge il nome utente
+  // appends the username to the path
   strncat(path, username, sizeof(path) - strlen(path) - 1);
 
-  // Ora path = "./username"
+  // now path = "./username"
   return check_directory(path);
 } // end check_username
 
@@ -148,7 +148,7 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
     if (strncmp(absolute_path, original_cwd, root_len) != 0) {
         return 0; // path outside the sandbox
     }
-  }
+  }//end else
   return 1;
     
 } // end resolve_and_check_path
