@@ -307,6 +307,6 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
   }
 
   fclose(fd);
-  send(client_sock, "OK\n", 3, 0);
+  send_with_cwd(client_sock, "OK\n", loggedUser);
 }
     

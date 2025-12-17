@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
       break;
     } // end if
 
-    // receive from the server
+    // receive from the server 
     int n = read(sock, buffer, BUFFER_SIZE - 1);
     if (n < 0) {
       perror("Error in the read!");
@@ -95,11 +95,30 @@ int main(int argc, char *argv[]) {
     char *firstToken = strtok(buffer, " ");
     char *secondToken = strtok(NULL, " ");
     
-    if (secondToken && strcmp(secondToken, "READY!") == 0 && access(firstToken, F_OK) == 0) {
-      // check path
-      client_upload(firstToken, sock);
-      
+    if (secondToken && strcmp(secondToken, "READY!") == 0 && firstToken) {
+    if (access(firstToken, F_OK) == 0) {
+        send(sock, "OK\n", 3, 0);         
+        client_upload(firstToken, sock);   
+    } else {
+        send(sock, "ERR\n", 4, 0);    
+
+        // receive from the server 
+    int n = read(sock, buffer, BUFFER_SIZE - 1);
+    if (n < 0) {
+      perror("Error in the read!");
+      break;
     } // end if
+    else {
+      if (n == 0) {
+        printf("Server disconnected\n");
+        break; // the client terminates
+      } // end if
+    } // end else
+    buffer[n] = '\0';     // string terminator
+    printf("%s", buffer); // Debug
+
+    }
+}
   } // end while
 
   close(sock); // closes the socket
