@@ -69,7 +69,7 @@ int create_file(char *file, mode_t permissions) {
 int change_directory(char * path){
 
   if (chdir(path) != 0) {
-        perror("chdir fallito");
+        perror("chdir failed");
         return 0;
     }
 
@@ -149,7 +149,7 @@ void file_info_string(const char *fullpath, char *out, size_t out_size) {
     
     // Important: we use lstat to not follow symbolic links <<<
     if (lstat(fullpath, &file_stat) == -1) { 
-        snprintf(out, out_size, "Errore: impossibile leggere %s: %s\n", fullpath, strerror(errno));
+        snprintf(out, out_size, "Error: impossible to read %s: %s\n", fullpath, strerror(errno));
         return;
     }
 
@@ -256,27 +256,37 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
 }//end list directory string
 
 
-void handle_upload(int client_sock, char *server_path, char* client_path) {
-  strcat(server_path,"/");
-  strcat(server_path, basename(client_path));
+void handle_upload(int client_sock, char *server_path, char* client_path, char *loggedUser) {
+  char final_path[PATH_MAX];
 
-  FILE *fd = fopen(server_path, "w");
+  // server_path is the target directory (e.g. "docs"), client_path is the local file (e.g. "/tmp/a.txt")
+  snprintf(final_path, sizeof(final_path), "%s/%s", server_path, basename(client_path));
 
-  if (fd == NULL) {
-    send(client_sock, "Error opening server file\n", strlen("Error opening server file\n"), 0);
+  // sends READY
+  char ready_msg[PATH_MAX + 32];
+  snprintf(ready_msg, sizeof(ready_msg), "%s READY!\n", client_path);
+  send(client_sock, ready_msg, strlen(ready_msg), 0);
+
+  char response[16] = {0};
+  if (recv(client_sock, response, sizeof(response) - 1, 0) <= 0) {
     return;
   }
 
-  // send ready message to client
-  strcat(client_path," READY!\n");
-
-  printf("Client path: %s\n", client_path); // Debug
-
-  send(client_sock, client_path, strlen(client_path), 0);
+  if (strcmp(response, "OK\n") != 0) {
+    send_with_cwd(client_sock, "File not found\n", loggedUser);
+    return;
+  }
 
   uint64_t net_size;
-  if (recv(client_sock, &net_size, sizeof(net_size),MSG_WAITALL) != sizeof(net_size)) {
-    fclose(fd);
+  if (recv(client_sock, &net_size, sizeof(net_size), MSG_WAITALL) != sizeof(net_size)) {
+    return;
+  }
+
+  // opens the file in write mode
+  FILE *fd = fopen(final_path, "wb");
+  if (!fd) {
+    send(client_sock, "Error opening server file\n",
+         strlen("Error opening server file\n"), 0);
     return;
   }
 
@@ -286,21 +296,17 @@ void handle_upload(int client_sock, char *server_path, char* client_path) {
   uint64_t bytes_received = 0;
 
   while (bytes_received < file_size) {
-    ssize_t to_read = sizeof(buffer);
-    if (to_read > file_size - bytes_received) {
-      to_read = file_size - bytes_received;
-    }
-    
+    size_t to_read = BUFFER_SIZE;
+    if (to_read > (size_t)(file_size - bytes_received)) to_read = (size_t)(file_size - bytes_received);
+
     ssize_t n = recv(client_sock, buffer, to_read, 0);
-    if (n <= 0) {
-      fclose(fd);
-      return;
-    }
-    fwrite(buffer, 1, n, fd);
-    bytes_received += n;
+    if (n <= 0) { fclose(fd); return; }
+
+    fwrite(buffer, 1, (size_t)n, fd);
+    bytes_received += (uint64_t)n;
   }
 
   fclose(fd);
-  send(client_sock, "OK\n", strlen("OK\n"), 0);
+  send(client_sock, "OK\n", 3, 0);
 }
     

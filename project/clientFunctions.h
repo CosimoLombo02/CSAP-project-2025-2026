@@ -20,43 +20,43 @@ static int send_all(int s, const void *buf, size_t len) {
 }
 
 void client_upload(char *client_path, int client_socket) {
+    
+    char *full_path = malloc(strlen(client_path) + strlen(getcwd(NULL, 0)) + 2);
+    if (full_path == NULL) {
+        perror("malloc");
+        return;
+    }
 
-    printf("Client path: %s\n", client_path);
-    printf("Logged CWD: %s\n", getcwd(NULL, 0));
+    snprintf(full_path, strlen(client_path) + strlen(getcwd(NULL, 0)) + 2, "%s/%s", getcwd(NULL, 0), client_path);
 
-    int fd = open(client_path, O_RDONLY);
+    int fd = open(full_path, O_RDONLY);
     if (fd < 0) {
         perror("open");
         return;
     }
 
-    char response[16];
-    recv(client_socket, response, sizeof(response), 0);
 
     struct stat st;
-    fstat(fd, &st);
+    if (fstat(fd, &st) < 0) { perror("fstat"); close(fd); return; }
 
     uint64_t file_size = st.st_size;
     uint64_t net_size = htobe64(file_size);
 
-    send_all(client_socket, &net_size, sizeof(net_size));
+    if (send_all(client_socket, &net_size, sizeof(net_size)) < 0) {
+        perror("send size"); close(fd); return;
+    }
 
     char buffer[BUFFER_SIZE];
     ssize_t n;
 
     while ((n = read(fd, buffer, BUFFER_SIZE)) > 0) {
-        fwrite(buffer, 1, n, stdout);
-        send_all(client_socket, buffer, n);
+        if (send_all(client_socket, buffer, n) < 0) {
+            perror("send"); close(fd); return;
+        }
     }
     close(fd);
 
-    recv(client_socket, response, sizeof(response), 0);
-    printf("Server: %s\n", response); // just for debugging
-
-    
-
-
-
-    
-
+    char response[16] = {0};
+    ssize_t r = recv(client_socket, response, sizeof(response) - 1, 0);
+    if (r > 0) printf("Server: %s\n", response);
 }

@@ -90,13 +90,16 @@ int main(int argc, char *argv[]) {
     printf("%s", buffer); // Debug
 
 
+    buffer[strcspn(buffer, "\r\n")] = '\0';
+
     char *firstToken = strtok(buffer, " ");
     char *secondToken = strtok(NULL, " ");
-
-    if (strcmp(secondToken, "READY!") == 0) {
+    
+    if (secondToken && strcmp(secondToken, "READY!") == 0 && access(firstToken, F_OK) == 0) {
+      // check path
       client_upload(firstToken, sock);
+      
     } // end if
-
   } // end while
 
   close(sock); // closes the socket

@@ -382,8 +382,9 @@ void handle_client(int client_sock) {
 
                 seteuid(0);
 
-               //call function 
-               handle_upload(client_sock, thirdToken, secondToken);
+               //call function
+               
+               handle_upload(client_sock, thirdToken, secondToken, loggedUser);
                seteuid(original_uid);
               }else{
                 send_with_cwd(client_sock, "Error in the file upload!\n", loggedUser);
