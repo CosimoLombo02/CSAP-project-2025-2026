@@ -418,7 +418,7 @@ void handle_client(int client_sock) {
                     handle_download(client_sock, secondToken, loggedUser);
                 }else{
                     send_with_cwd(client_sock, "Error in the file download!\n", loggedUser);
-                }
+                }//end else resolve_and_check_path
             }//end else second token
         }//end else loggedUser download
       
