@@ -373,5 +373,13 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
 
     // Send final prompt (empty message triggers prompt update in client)
     send_with_cwd(client_sock, "", loggedUser); 
-}
+}//end handle download
+
+
+//this fucntions changes the permissions of a file
+int handle_chmod(char *server_path, char *permissions) {
+
+   return chmod(server_path, strtol(permissions, NULL, 8));
+    
+}//end handle chmod
     

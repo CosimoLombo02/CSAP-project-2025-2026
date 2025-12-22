@@ -114,6 +114,11 @@ char *remove_prefix(const char *str, const char *prefix) {
 // 0 not valid, 1 valid
 int resolve_and_check_path(const char *input, const char *loggedCwd, const char *command) {
   char absolute_path[PATH_MAX];
+   //debug
+    
+    printf("Path resolved: %s\n", absolute_path);
+    printf("Logged CWD: %s\n", loggedCwd);
+    printf("Input: %s\n", input);
 
   if (strcmp(command, "list") != 0) {
 
@@ -122,12 +127,8 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
         return 0;
     }
 
-    //debug
-    /*
-    printf("Path resolved: %s\n", absolute_path);
-    printf("Logged CWD: %s\n", loggedCwd);
-    printf("Input: %s\n", input);
-    */
+   
+    
 
     // check if the path is inside the sandbox
     size_t root_len = strlen(loggedCwd);

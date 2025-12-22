@@ -266,7 +266,7 @@ void handle_client(int client_sock) {
               return;
             } // end if seteuid
 
-            if(create_directory(secondToken,strtol(thirdToken, NULL, 8))==1){
+            if( resolve_and_check_path(secondToken, loggedCwd, "create")==1 && create_directory(secondToken,strtol(thirdToken, NULL, 8))==1){
               send_with_cwd(client_sock, "Directory created successfully!\n", loggedUser);
             } else {
               send_with_cwd(client_sock, "Error in the directory creation!\n", loggedUser);
@@ -298,7 +298,7 @@ void handle_client(int client_sock) {
               return;
             } // end if seteuid
 
-            if(create_file(secondToken,strtol(thirdToken, NULL, 8))==1){
+            if( resolve_and_check_path(secondToken, loggedCwd, "create")==1 && create_file(secondToken,strtol(thirdToken, NULL, 8))==1 ){
               send_with_cwd(client_sock, "File created successfully!\n", loggedUser);
             } else {
               send_with_cwd(client_sock, "Error in the file creation!\n", loggedUser);
@@ -422,9 +422,67 @@ void handle_client(int client_sock) {
             }//end else second token
         }//end else loggedUser download
       
-    }else{
+    }else if(strcmp(firstToken,"chmod")==0){
+      if(loggedUser[0]=='\0'){
+        send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+      }else{
+        if(secondToken==NULL || strlen(secondToken)==0){
+          send_with_cwd(client_sock, "Insert file path!\n", loggedUser);
+        }else{
+          if(thirdToken==NULL || strlen(thirdToken)==0){
+            send_with_cwd(client_sock, "Insert permissions!\n", loggedUser);
+          }else{
+            if(resolve_and_check_path(secondToken, loggedCwd, "chmod")==1){
+              if(check_permissions(thirdToken)==0){
+                  send_with_cwd(client_sock, "Invalid permissions!\n", loggedUser);
+                
+              }else{
+                //if i am here i can change the permissions
+
+                
+               // up to root
+              if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+              }
+
+              //set to loggedUser
+              if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+                perror("seteuid(get_uid_by_username(loggedUser)) failed");
+                return;
+              }
+
+                if(handle_chmod(secondToken, thirdToken)==-1){
+                  send_with_cwd(client_sock, "Error in the file chmod!\n", loggedUser);
+                }else{
+                  send_with_cwd(client_sock, "File chmod successfully!\n", loggedUser);
+                }
+                
+                // up to root
+              if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+              }
+              
+
+              //back to non-root
+              if (seteuid(original_uid) == -1) {
+                perror("seteuid(original_uid) failed");
+                return;
+              }
+                
+              
+              }//end else checkpermissions
+            }else{
+              send_with_cwd(client_sock, "Error in the file chmod!\n", loggedUser);
+            }//end else resolve_and_check_path
+          }//end else third token
+        }//end else second token
+      }//end else loggedUser chmod 
+        
+      }else{
         send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
-      }//end else list invalid command
+      }//end else chmod invalid command
   } // end while
 
 
