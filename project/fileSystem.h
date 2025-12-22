@@ -11,6 +11,7 @@
 #include <time.h>
 #include <pwd.h> 
 #include <grp.h> 
+#include <sys/file.h> 
 
 extern char start_cwd[PATH_MAX];
 
@@ -376,10 +377,41 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
 }//end handle download
 
 
+
 //this fucntions changes the permissions of a file
 int handle_chmod(char *server_path, char *permissions) {
+    mode_t mode = strtol(permissions, NULL, 8);
 
-   return chmod(server_path, strtol(permissions, NULL, 8));
+    // 1. Open the file 
+    // We use O_RDONLY. flock() works on read-only descriptors on Linux.
+    // fcntl(F_WRLCK) would require O_WRONLY which might fail if file is read-only.
+    int fd = open(server_path, O_RDONLY);
+    if (fd == -1) {
+        perror("open failed in handle_chmod");
+        return -1;
+    }
+
+    // 2. Acquire Exclusive Lock
+    // LOCK_EX = Exclusive lock
+    if (flock(fd, LOCK_EX) == -1) {
+        perror("flock failed");
+        close(fd);
+        return -1;
+    }
+
+    // 3. Change permissions
+    int result = fchmod(fd, mode);
+    if (result == -1) {
+        perror("fchmod failed");
+    }
+
+    // 4. Release Lock (Explicitly)
+    // LOCK_UN = Unlock
+    flock(fd, LOCK_UN);
+
+    // Close file
+    close(fd);
     
-}//end handle chmod
+    return result;
+}//end handle_chmod
     

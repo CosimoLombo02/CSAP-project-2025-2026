@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <grp.h>
 #include <pwd.h>
+#include <libgen.h>
 
 // global variables
 extern char original_cwd[PATH_MAX];
@@ -120,7 +121,30 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
     printf("Logged CWD: %s\n", loggedCwd);
     printf("Input: %s\n", input);
 
-  if (strcmp(command, "list") != 0) {
+  if(strcmp(command, "create") == 0){
+      char temp_path[PATH_MAX];
+      char *dir_name;
+      char resolved_dir[PATH_MAX];
+
+      strncpy(temp_path, input, sizeof(temp_path));
+      temp_path[sizeof(temp_path) - 1] = '\0';
+      
+      dir_name = dirname(temp_path);
+      
+      // Resolve the parent directory
+      if (realpath(dir_name, resolved_dir) == NULL) {
+           return 0; // Parent directory does not exist
+      }
+
+      // Check if the resolved parent directory is inside the sandbox
+      size_t root_len = strlen(loggedCwd);
+      if (strncmp(resolved_dir, loggedCwd, root_len) != 0) {
+          return 0; // Parent is outside sandbox
+      }
+
+      return 1;
+
+  }else if (strcmp(command, "list") != 0) {
 
     // resolve the path
     if (realpath(input, absolute_path) == NULL) {
