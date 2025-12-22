@@ -10,7 +10,14 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/wait.h>
 #include "clientFunctions.h"
+#include "uploadDownloadClient.h"
+
+char original_cwd[PATH_MAX];
+
+
+
 
 int main(int argc, char *argv[]) {
 
@@ -31,6 +38,8 @@ int main(int argc, char *argv[]) {
     port = atoi(argv[2]);
 
   int sock = socket(AF_INET, SOCK_STREAM, 0);
+  
+  signal(SIGCHLD, sigchld_handler);
   if (sock < 0) {
     perror("Error in the socket creation!");
     return 1; // exit
@@ -53,11 +62,107 @@ int main(int argc, char *argv[]) {
   printf("Connected to server at %s:%d\n", server_ip, port);
 
   char buffer[BUFFER_SIZE];
+  char pending_user[64] = "";
 
   while (1) {
     printf("<");
     if (fgets(buffer, BUFFER_SIZE, stdin) == NULL)
       break;
+
+    // Capture potential login username
+    if (strncmp(buffer, "login ", 6) == 0) {
+        sscanf(buffer, "login %s", pending_user);
+    } else {
+        pending_user[0] = '\0';
+    }
+
+    // Check for -b flag in upload command
+    char cmd_copy[BUFFER_SIZE];
+    strcpy(cmd_copy, buffer);
+    cmd_copy[strcspn(cmd_copy, "\r\n")] = '\0';
+    
+    char *t1 = strtok(cmd_copy, " ");
+    char *t2 = strtok(NULL, " "); // client path
+    char *t3 = strtok(NULL, " "); // server path
+    char *t4 = strtok(NULL, " "); // -b flag if present
+
+   if (t1 && strcmp(t1, "upload") == 0 && t4 && strcmp(t4, "-b") == 0) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork");
+        } else if (pid > 0) {
+            printf("Background upload started...\n%s", current_prompt);
+            add_upload(pid, t2);
+            continue; 
+        } else {
+             // Child process
+             close(sock); // close parent socket
+             int new_sock = socket(AF_INET, SOCK_STREAM, 0);
+             if (new_sock < 0) exit(1);
+
+             if (connect(new_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+                perror("Background connection failed");
+                exit(1);
+             }
+             
+             // Auto-login if user was logged in
+             if (strlen(logged_user) > 0) {
+                 char login_cmd[128];
+                 snprintf(login_cmd, sizeof(login_cmd), "login %s\n", logged_user);
+                 write(new_sock, login_cmd, strlen(login_cmd));
+                 
+                 // Consume login response
+                 char tmp[BUFFER_SIZE];
+                 read(new_sock, tmp, BUFFER_SIZE-1);
+             }
+             
+             // Send upload command without -b
+             char up_cmd[BUFFER_SIZE];
+             snprintf(up_cmd, sizeof(up_cmd), "upload %s %s\n", t2, t3);
+             write(new_sock, up_cmd, strlen(up_cmd));
+             
+             // Handle response
+             char buf2[BUFFER_SIZE];
+             int n2 = read(new_sock, buf2, BUFFER_SIZE-1);
+             if (n2 > 0) {
+                 buf2[n2] = '\0';
+                 // Check if server says "You are not logged in!"
+                 if (strstr(buf2, "not logged in") != NULL) {
+                     close(new_sock);
+                     exit(101); // Not logged in
+                 }
+
+                 buf2[strcspn(buf2, "\r\n")] = '\0'; // Remove newline
+                 char *fToken = strtok(buf2, " ");
+                 char *sToken = strtok(NULL, " ");
+                 
+                 if (sToken && strcmp(sToken, "READY!") == 0) {
+                     if (access(t2, R_OK) == 0) {
+                         send(new_sock, "OK\n", 3, 0);
+                         client_upload(t2, new_sock, logged_user);
+                         
+                         // Manually read response (silent check)
+                         char response[4096] = {0};
+                         read(new_sock, response, sizeof(response) - 1);
+                         
+                         close(new_sock);
+                         exit(0); // Success
+                     } else {
+                         send(new_sock, "ERR\n", 4, 0);
+                         close(new_sock);
+                         exit(102); // File error
+                     }
+                 } else {
+                     // Some other error from server
+                     close(new_sock);
+                     exit(103);
+                 }
+             }
+             close(new_sock);
+             exit(1); // Generic error if read failed
+        }
+   }
+
 
     /*if the user types exit the client terminates,
     but this is just a prototype, we have to handle the
@@ -87,7 +192,13 @@ int main(int argc, char *argv[]) {
       } // end if
     } // end else
     buffer[n] = '\0';     // string terminator
+    update_prompt(buffer);
     printf("%s", buffer); // Debug
+
+    if (strstr(buffer, "Login successful!") != NULL && strlen(pending_user) > 0) {
+        strcpy(logged_user, pending_user);
+    }
+
 
 
     buffer[strcspn(buffer, "\r\n")] = '\0';
@@ -96,9 +207,19 @@ int main(int argc, char *argv[]) {
     char *secondToken = strtok(NULL, " ");
     
     if (secondToken && strcmp(secondToken, "READY!") == 0 && firstToken) {
-    if (access(firstToken, F_OK) == 0) {
+    if (access(firstToken, R_OK) == 0) {
         send(sock, "OK\n", 3, 0);         
-        client_upload(firstToken, sock);   
+       if(client_upload(firstToken, sock, logged_user)==0){
+         // Manually read response (foreground)
+        char response[4096] = {0};
+        if (read(sock, response, sizeof(response) - 1) > 0) {
+            update_prompt(response);
+            printf("%s", response);
+        }//end nested if
+
+       }//end client upload check
+
+       
     } else {
         send(sock, "ERR\n", 4, 0);    
 
@@ -117,8 +238,11 @@ int main(int argc, char *argv[]) {
     buffer[n] = '\0';     // string terminator
     printf("%s", buffer); // Debug
 
-    }
-}
+    }//end else access
+}//end if secondToken
+
+
+
   } // end while
 
   close(sock); // closes the socket

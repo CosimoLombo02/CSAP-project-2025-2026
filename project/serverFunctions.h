@@ -66,7 +66,7 @@ int create_system_user(char *username) {
 
 
 
-// alterantive version of the login fuction, it uses the directory check control
+// login function
 
 char *login(char *username, int client_socket) {
 
@@ -78,10 +78,10 @@ char *login(char *username, int client_socket) {
 
 
   // up to root
-  if (seteuid(0) == -1) {
-    perror("seteuid(0) failed");
-    return NULL;
-  } // end if
+  // if (seteuid(0) == -1) {
+  //   perror("seteuid(0) failed");
+  //   return NULL;
+  // } // end if
 
   if (check_directory(username) == 1) {
     change_directory(username);
@@ -91,11 +91,11 @@ char *login(char *username, int client_socket) {
     loggedCwd[sizeof(loggedCwd)-1] = '\0';
 
     // back to non-root
-    if (seteuid(original_uid) == -1) {
-      perror("seteuid(original_uid) failed");
-      return NULL;
+    // if (seteuid(original_uid) == -1) {
+    //   perror("seteuid(original_uid) failed");
+    //   return NULL;
 
-    } // end if
+    // } // end if
 
     return username;
 
@@ -380,25 +380,29 @@ void handle_client(int client_sock) {
             if(fourthToken==NULL || strlen(fourthToken)==0){
               if(resolve_and_check_path(thirdToken, loggedCwd, "upload")==1){
 
-                seteuid(0);
+                // seteuid(0);
 
                //call function
-               
-               handle_upload(client_sock, thirdToken, secondToken, loggedUser);
-               seteuid(original_uid);
+               // up to root
+              if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+              } // end if seteuid
+               handle_upload(client_sock, thirdToken, secondToken, loggedUser, get_uid_by_username(loggedUser), get_gid_by_username(loggedUser));
+               // back to non-root
+              if (seteuid(original_uid) == -1) {
+                perror("seteuid(original_uid) failed");
+                return;
+              } // end if seteuid
+              
               }else{
                 send_with_cwd(client_sock, "Error in the file upload!\n", loggedUser);
               }
               
-            }else{
-              //if i am here i have to perform this operation in background
-              if(resolve_and_check_path(thirdToken, loggedCwd, "upload")==1 && strcmp(fourthToken,"-b")==0){
-                //call the function with background
-                send_with_cwd(client_sock, "test con background!", loggedUser); // debug
-              }else{
-                send_with_cwd(client_sock, "Error in the file upload!", loggedUser);
-              }
-            }//end else fourthToken
+            }//end if non existence of fouth token
+            //for the background upload, the client makes a new fork and in the
+            //child process calls the handle_upload function without the -b option
+            
           }//end else thirdToken
           
         }//end else secondToken

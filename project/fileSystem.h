@@ -256,7 +256,8 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
 }//end list directory string
 
 
-void handle_upload(int client_sock, char *server_path, char* client_path, char *loggedUser) {
+void handle_upload(int client_sock, char *server_path, char* client_path, char *loggedUser, uid_t uid, gid_t gid) {
+  
   char final_path[PATH_MAX];
 
   // server_path is the target directory (e.g. "docs"), client_path is the local file (e.g. "/tmp/a.txt")
@@ -273,7 +274,7 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
   }
 
   if (strcmp(response, "OK\n") != 0) {
-    send_with_cwd(client_sock, "File not found\n", loggedUser);
+    send_with_cwd(client_sock, "File not found or permission denied!\n", loggedUser);
     return;
   }
 
@@ -285,8 +286,7 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
   // opens the file in write mode
   FILE *fd = fopen(final_path, "wb");
   if (!fd) {
-    send(client_sock, "Error opening server file\n",
-         strlen("Error opening server file\n"), 0);
+    send_with_cwd(client_sock, "Error opening server file\n", loggedUser);
     return;
   }
 
@@ -306,7 +306,15 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
     bytes_received += (uint64_t)n;
   }
 
+  
   fclose(fd);
+
+  // here we change the owner of the file
+  if (chown(final_path, uid, gid) == -1) {
+    send_with_cwd(client_sock, "Error changing file owner\n", loggedUser);
+    return;
+  }
+
   send_with_cwd(client_sock, "OK\n", loggedUser);
-}
+}//end handle upload
     
