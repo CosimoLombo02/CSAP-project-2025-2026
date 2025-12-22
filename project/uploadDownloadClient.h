@@ -3,27 +3,24 @@
 
 char logged_user[64] = "";
 
-// Struct for active uploads
-typedef struct ActiveUpload {
-    pid_t pid;
-    char filename[256];
-    struct ActiveUpload *next;
-} ActiveUpload;
+// Struct for active operations
+typedef enum { OP_UPLOAD, OP_DOWNLOAD } OperationType;
 
-ActiveUpload *active_uploads = NULL;
+typedef struct ActiveOperation {
+    pid_t pid;
+    OperationType type;
+    char server_path[PATH_MAX];
+    char client_path[PATH_MAX];
+    struct ActiveOperation *next;
+} ActiveOperation;
+
+ActiveOperation *active_operations = NULL;
 char current_prompt[BUFFER_SIZE] = "> ";
 
 void update_prompt(const char *buffer) {
     // Basic heuristic: find last occurrence of "> "
     const char *last_prompt = strrchr(buffer, '>');
     if (last_prompt && *(last_prompt + 1) == ' ') {
-        // Need to find the start of the line or just take a reasonable suffix?
-        // Server sends: "\n/path > " or just "/path > "
-        // We can just copy the whole last line? 
-        // Or simplified: just copy the buffer if it looks like a prompt?
-        // The buffer might contain multiple lines.
-        
-        // Let's assume the prompt is at the end of the buffer.
         size_t len = strlen(buffer);
         if (len > 2 && buffer[len-2] == '>' && buffer[len-1] == ' ') {
             // Find start of this line
@@ -39,52 +36,73 @@ void update_prompt(const char *buffer) {
     }
 }//end update_prompt
 
-void add_upload(pid_t pid, char *filename) {
-    ActiveUpload *new_node = malloc(sizeof(ActiveUpload));
+void add_operation(pid_t pid, OperationType type, char *server_path, char *client_path) {
+    ActiveOperation *new_node = malloc(sizeof(ActiveOperation));
     new_node->pid = pid;
-    strncpy(new_node->filename, filename, sizeof(new_node->filename) - 1);
-    new_node->filename[sizeof(new_node->filename) - 1] = '\0';
-    new_node->next = active_uploads;
-    active_uploads = new_node;
-}//end add_upload
+    new_node->type = type;
+    strncpy(new_node->server_path, server_path, sizeof(new_node->server_path) - 1);
+    new_node->server_path[sizeof(new_node->server_path) - 1] = '\0';
+    
+    strncpy(new_node->client_path, client_path, sizeof(new_node->client_path) - 1);
+    new_node->client_path[sizeof(new_node->client_path) - 1] = '\0';
+    
+    new_node->next = active_operations;
+    active_operations = new_node;
+}//end add_operation
 
-// Function to remove the upload from the list and print the result
-void remove_and_print_upload(pid_t pid, int status) {
-    ActiveUpload **curr = &active_uploads;
+// Function to remove the operation from the list and print the result
+void remove_and_print_operation(pid_t pid, int status) {
+    ActiveOperation **curr = &active_operations;
     while (*curr) {
         if ((*curr)->pid == pid) {
-            ActiveUpload *temp = *curr;
+            ActiveOperation *temp = *curr;
             
             if (WIFEXITED(status)) {
                 int exit_code = WEXITSTATUS(status);
-                if (exit_code == 0) {
-                     printf("\nBackground upload of %s completed.\n%s<", temp->filename, current_prompt);
-                } else if (exit_code == 101) {
-                     printf("\nBackground upload of %s failed: You are not logged in.\n%s<", temp->filename, current_prompt);
-                } else if (exit_code == 102) {
-                     printf("\nBackground upload of %s failed: File does not exist or permission denied!\n%s<", temp->filename, current_prompt);
-                } else if (exit_code == 103) {
-                     printf("\nBackground upload of %s failed: Server rejected upload.\n%s<", temp->filename, current_prompt);
-                } else {
-                     printf("\nBackground upload of %s failed with error code %d.\n%s<", temp->filename, exit_code, current_prompt);
+                
+                if (temp->type == OP_UPLOAD) {
+                    if (exit_code == 0) {
+                        printf("\nBackground upload of %s completed.\n%s", temp->client_path, current_prompt);
+                    } else if (exit_code == 101) {
+                         printf("\nBackground upload of %s failed: You are not logged in.\n%s", temp->client_path, current_prompt);
+                    } else if (exit_code == 102) {
+                         printf("\nBackground upload of %s failed: File does not exist or permission denied!\n%s", temp->client_path, current_prompt);
+                    } else if (exit_code == 103) {
+                         printf("\nBackground upload of %s failed: Server rejected upload.\n%s", temp->client_path, current_prompt);
+                    } else {
+                         printf("\nBackground upload of %s failed with error code %d.\n%s", temp->client_path, exit_code, current_prompt);
+                    }
+                } else if (temp->type == OP_DOWNLOAD) {
+                    // Spec: [Background] Command: download <server path> <client path> concluded
+                    if (exit_code == 0) {
+                        printf("\n[Background] Command: download %s %s concluded\n%s", temp->server_path, temp->client_path, current_prompt);
+                    } else if (exit_code == 101) {
+                        printf("\n[Background] Command: download %s %s failed (Not logged in)\n%s", temp->server_path, temp->client_path, current_prompt);
+                    } else if (exit_code == 102) {
+                        printf("\n[Background] Command: download %s %s failed (File not found)\n%s", temp->server_path, temp->client_path, current_prompt);
+                    } else if (exit_code == 103) {
+                        printf("\n[Background] Command: download %s %s failed (Client write error)\n%s", temp->server_path, temp->client_path, current_prompt);
+                    } else {
+                        printf("\n[Background] Command: download %s %s failed (Code %d)\n%s", temp->server_path, temp->client_path, exit_code, current_prompt);
+                    }
                 }
             } else {
-                printf("\nBackground upload of %s terminated abnormally.\n%s<", temp->filename, current_prompt);
+                printf("\nBackground operation terminated abnormally.\n%s", current_prompt);
             }
 
             fflush(stdout);
-            *curr = (*curr)->next;
+            *curr = temp->next;
             free(temp);
             return;
         }
         curr = &(*curr)->next;
     }
-}//end remove_and_print_upload
+}//end remove_and_print_operation
 
 void sigchld_handler(int sig) {
     int status;
     pid_t pid;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        remove_and_print_upload(pid, status);
+        remove_and_print_operation(pid, status);
     }
 }//end sigchld_handler

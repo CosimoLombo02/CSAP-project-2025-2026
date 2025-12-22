@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
             perror("fork");
         } else if (pid > 0) {
             printf("Background upload started...\n%s", current_prompt);
-            add_upload(pid, t2);
+            add_operation(pid, OP_UPLOAD, t3, t2); // t2=client, t3=server
             continue; 
         } else {
              // Child process
@@ -162,6 +162,67 @@ int main(int argc, char *argv[]) {
              exit(1); // Generic error if read failed
         }
    }
+   
+   // Background Download Logic
+   if (t1 && strcmp(t1, "download") == 0 && t4 && strcmp(t4, "-b") == 0) {
+       pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork");
+        } else if (pid > 0) {
+            printf("Background download started...\n%s", current_prompt);
+            add_operation(pid, OP_DOWNLOAD, t2, t3); // t2=server, t3=client
+            continue; 
+        } else {
+             // Child process
+             close(sock);
+             int new_sock = socket(AF_INET, SOCK_STREAM, 0);
+             if (new_sock < 0) exit(1);
+
+             if (connect(new_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+                exit(1);
+             }
+             
+             // Auto-login
+             if (strlen(logged_user) > 0) {
+                 char login_cmd[128];
+                 snprintf(login_cmd, sizeof(login_cmd), "login %s\n", logged_user);
+                 write(new_sock, login_cmd, strlen(login_cmd));
+                 char tmp[BUFFER_SIZE];
+                 read(new_sock, tmp, BUFFER_SIZE-1);
+             }
+             
+             // Send download command without -b
+             char dw_cmd[BUFFER_SIZE];
+             snprintf(dw_cmd, sizeof(dw_cmd), "download %s %s\n", t2, t3);
+             write(new_sock, dw_cmd, strlen(dw_cmd));
+             
+             // Handle response
+             // Server sends "READY!" if OK
+             char buf2[BUFFER_SIZE];
+             int n2 = read(new_sock, buf2, BUFFER_SIZE-1);
+             if (n2 > 0) {
+                 buf2[n2] = '\0';
+                 if (strstr(buf2, "not logged in") != NULL) { close(new_sock); exit(101); }
+                 // Check for "READY!"
+                 if (strstr(buf2, "READY!") != NULL) {
+                     // Call client_download to receive data
+                     if(client_download(t2, t3, new_sock) == 0) {
+                         close(new_sock);
+                         exit(0);
+                     } else {
+                         close(new_sock);
+                         exit(103); 
+                     }
+                 } else {
+                     // Server said "File not found" or something
+                     close(new_sock);
+                     exit(102); 
+                 }
+             }
+             close(new_sock);
+             exit(1);
+        }
+   }
 
 
     /*if the user types exit the client terminates,
@@ -169,9 +230,19 @@ int main(int argc, char *argv[]) {
     -b option as the professor wrote on the slides
     */
     if (strcmp(buffer, "exit\n") == 0) {
+      if (active_operations != NULL) {
+          printf("Background operations pending... cannot exit.\n%s", current_prompt);
+          continue;
+      }
       printf("Bye!\n"); // output on the console
       break;
     } // end if
+
+    // Save command context because buffer will be overwritten by response
+    char command_copy[BUFFER_SIZE];
+    strncpy(command_copy, buffer, BUFFER_SIZE - 1);
+    command_copy[BUFFER_SIZE - 1] = '\0';
+    command_copy[strcspn(command_copy, "\r\n")] = '\0';
 
     // send to the server
     if (write(sock, buffer, strlen(buffer)) < 0) {
@@ -193,6 +264,31 @@ int main(int argc, char *argv[]) {
     } // end else
     buffer[n] = '\0';     // string terminator
     update_prompt(buffer);
+    
+    // Check if we need to handle specific responses based on the command we sent
+    char *c1 = strtok(command_copy, " ");
+    char *c2 = strtok(NULL, " "); // server path (for download) or local path (for upload)
+    char *c3 = strtok(NULL, " "); // client path (for download) or remote path (for upload)
+    
+    if (c1 && strcmp(c1, "download") == 0 && c2 && c3) {
+        // Foreground download
+        // Check if server said "READY!"
+        if (strstr(buffer, "READY!") != NULL) {
+            // Call client_download
+            if (client_download(c2, c3, sock) == 0) {
+                printf("Download of %s completed.\n", c2);
+                 char prompt_buf[BUFFER_SIZE];
+                 if(read(sock, prompt_buf, BUFFER_SIZE-1) > 0) {
+                     update_prompt(prompt_buf);
+                     printf("%s", prompt_buf);
+                 }
+            } else {
+                printf("Download failed.\n");
+            }
+            continue; // Skip the standard printf and parsing below
+        }
+    }
+
     printf("%s", buffer); // Debug
 
     if (strstr(buffer, "Login successful!") != NULL && strlen(pending_user) > 0) {

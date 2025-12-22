@@ -317,4 +317,61 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
 
   send_with_cwd(client_sock, "OK\n", loggedUser);
 }//end handle upload
+
+void handle_download(int client_sock, char *server_path, char *loggedUser) {
+    if (access(server_path, R_OK) != 0) {
+        send_with_cwd(client_sock, "File not found or permission denied\n", loggedUser);
+        return;
+    }
+
+    struct stat st;
+    if (stat(server_path, &st) < 0 || !S_ISREG(st.st_mode)) {
+        send_with_cwd(client_sock, "Invalid file\n", loggedUser);
+        return;
+    }
+
+    // Send READY!
+    char ready_msg[64];
+    snprintf(ready_msg, sizeof(ready_msg), "READY!\n");
+    send(client_sock, ready_msg, strlen(ready_msg), 0);
+
+    // Wait for client OK
+    char response[16] = {0};
+    if (recv(client_sock, response, sizeof(response) - 1, 0) <= 0) {
+        return;
+    }
+
+    if (strncmp(response, "OK", 2) != 0) {
+        return; // Client aborted
+    }
+
+    uint64_t file_size = st.st_size;
+    uint64_t net_size = htobe64(file_size);
+    
+    // Send size
+    if (send(client_sock, &net_size, sizeof(net_size), 0) < 0) {
+        perror("send size");
+        return;
+    }
+
+    // Send file content
+    int fd = open(server_path, O_RDONLY);
+    if (fd < 0) {
+        perror("open server file");
+        return;
+    }
+
+    char buffer[BUFFER_SIZE];
+    ssize_t n;
+    while ((n = read(fd, buffer, BUFFER_SIZE)) > 0) {
+        if (send(client_sock, buffer, n, 0) < 0) {
+            perror("send file");
+            break;
+        }
+    }
+    close(fd);
+
+    // Send final prompt (empty message triggers prompt update in client)
+    send_with_cwd(client_sock, "", loggedUser); 
+}
     
