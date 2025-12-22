@@ -123,9 +123,11 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
     }
 
     //debug
+    /*
     printf("Path resolved: %s\n", absolute_path);
     printf("Logged CWD: %s\n", loggedCwd);
     printf("Input: %s\n", input);
+    */
 
     // check if the path is inside the sandbox
     size_t root_len = strlen(loggedCwd);

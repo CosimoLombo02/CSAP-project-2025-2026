@@ -407,6 +407,42 @@ void handle_client(int client_sock) {
           
         }//end else secondToken
       }//end else loggedUser upload
+    }else if(strcmp(firstToken,"download")==0){
+      if(loggedUser[0]=='\0'){
+        send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+      }else{
+       if(secondToken==NULL || strlen(secondToken)==0){
+          send_with_cwd(client_sock, "Insert server path!\n", loggedUser);
+        }else{
+          if(thirdToken==NULL || strlen(thirdToken)==0){
+            send_with_cwd(client_sock, "Insert client path!\n", loggedUser);
+          }else{
+            if(fourthToken==NULL || strlen(fourthToken)==0){
+              if(resolve_and_check_path(secondToken, loggedCwd, "download")==1){
+                //Debug
+                send_with_cwd(client_sock, "File downloaded successfully!\n", loggedUser);
+                
+              }else{
+                send_with_cwd(client_sock, "Error in the file download!\n", loggedUser);
+              }//end else no background download
+            }else{
+              //background download
+              if(resolve_and_check_path(secondToken, loggedCwd, "download")==1){
+
+                //Debug 
+                send_with_cwd(client_sock, "File downloaded successfully background!\n", loggedUser);
+                
+              }else{
+                send_with_cwd(client_sock, "Error in the file download!\n", loggedUser);
+              }
+            }//end else fourthToken download
+            
+          }//end else thirdToken download
+          
+        }//end else secondToken download
+        
+      }//end else loggedUser download
+      
     }else{
         send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
       }//end else list invalid command
