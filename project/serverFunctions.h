@@ -190,6 +190,7 @@ as we can see it has different behaviuors based on the message received  */
 void handle_client(int client_sock) {
 
   char buffer[BUFFER_SIZE];
+  char cwd[PATH_MAX];
   int n;
 
   
@@ -300,7 +301,7 @@ void handle_client(int client_sock) {
               perror("seteuid(user) failed");
               return;
             } // end if seteuid
-
+            
             if( resolve_and_check_path(secondToken, loggedCwd, "create")==1 && create_file(secondToken,strtol(thirdToken, NULL, 8))==1 ){
               send_with_cwd(client_sock, "File created successfully!\n", loggedUser);
             } else {
@@ -341,6 +342,7 @@ void handle_client(int client_sock) {
             send_with_cwd(client_sock, "Insert path!\n", loggedUser);
           }else{
             if(resolve_and_check_path(secondToken, loggedCwd, "cd")==1 && change_directory(secondToken)==1){
+
               send_with_cwd(client_sock, "Directory changed successfully!\n", loggedUser);
             }else{
               send_with_cwd(client_sock, "Error in the directory change!\n", loggedUser);
@@ -483,7 +485,7 @@ void handle_client(int client_sock) {
         }//end else second token
       }//end else loggedUser chmod 
         
-      }else if(strcmp(firstToken,"mv")==0){
+      }else if(strcmp(firstToken,"move")==0){
         if(loggedUser[0]=='\0'){
           send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
         }else{
@@ -493,8 +495,8 @@ void handle_client(int client_sock) {
             if(thirdToken==NULL || strlen(thirdToken)==0){
               send_with_cwd(client_sock, "Insert new path!", loggedUser);
             }else{
-              if(resolve_and_check_path(secondToken, loggedCwd, "mv")==1){
-                if(resolve_and_check_path(thirdToken, loggedCwd, "mv")==1){
+              if(resolve_and_check_path(secondToken, loggedCwd, "move")==1){
+                if(resolve_and_check_path(thirdToken, loggedCwd, "move")==1){
                   
                   // up to root
                   if (seteuid(0) == -1) {
@@ -508,8 +510,18 @@ void handle_client(int client_sock) {
                     return;
                   }
 
+                  char old_abs[PATH_MAX];
+                  char new_abs[PATH_MAX];
+                  
+                  getcwd(cwd, sizeof(cwd));
+
+                  // build absolute paths
+                  build_abs_path(old_abs, cwd, secondToken);
+                  build_abs_path(new_abs, cwd, thirdToken);
+
+
                   if(handle_mv(old_abs, new_abs)==-1){
-                    send_with_cwd(client_sock, "Error in the file mv!(error mv function)\n", loggedUser);
+                    send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
                   }else{
                     send_with_cwd(client_sock, "File moved successfully!\n", loggedUser);
                   }
@@ -527,10 +539,10 @@ void handle_client(int client_sock) {
                   }
 
                 }else{
-                  send_with_cwd(client_sock, "Error in the file mv!(error resolve_and_check_path function1)\n", loggedUser);
+                  send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
                 }
               }else{
-                send_with_cwd(client_sock, "Error in the file mv!(error resolve_and_check_path function2)\n", loggedUser);
+                send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
               }
             }//end else third token mv 
           }//end else second token mv 
@@ -559,7 +571,7 @@ void handle_client(int client_sock) {
 
               // build absolute path
               char abs_path[PATH_MAX];
-              build_abs_path(abs_path, loggedCwd, secondToken);
+              build_abs_path(abs_path, cwd, secondToken);
 
               if(handle_delete(abs_path)==-1){
                 send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);

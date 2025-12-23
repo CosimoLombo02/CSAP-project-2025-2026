@@ -417,8 +417,28 @@ int handle_chmod(char *server_path, char *permissions) {
 
 //this functions move a file from the old path to the new path
 //just a prototype without locks
-int handle_mv(char *old_path, char *new_path) {
-    return rename(old_path, new_path);
+int handle_mv(const char *old_abs, const char *new_abs) {
+  struct stat st;
+  char full_new_path[PATH_MAX];
+  const char *dest_path = new_abs;
+
+  // Check if new_abs is a directory
+  if (stat(new_abs, &st) == 0 && S_ISDIR(st.st_mode)) {
+    char old_copy[PATH_MAX];
+    strncpy(old_copy, old_abs, PATH_MAX);
+    old_copy[PATH_MAX - 1] = '\0';
+    
+    char *filename = basename(old_copy);
+    
+    snprintf(full_new_path, sizeof(full_new_path), "%s/%s", new_abs, filename);
+    dest_path = full_new_path;
+  }
+
+  if (rename(old_abs, dest_path) == -1){
+    perror("error");
+    return -1;
+  }
+  return 0;
 }//end handle_mv
 
 //this functions delete a file

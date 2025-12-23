@@ -121,7 +121,7 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
     printf("Logged CWD: %s\n", loggedCwd);
     printf("Input: %s\n", input);
 
-  if(strcmp(command, "create") == 0){
+  if((strcmp(command, "create") == 0) || (strcmp(command, "move") == 0)){
       char temp_path[PATH_MAX];
       char *dir_name;
       char resolved_dir[PATH_MAX];
@@ -181,6 +181,27 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
 } // end resolve_and_check_path
 
 // Helper function to build the absolute path
-void build_abs_path(char *buffer, const char *cwd, const char *input) {
-    snprintf(buffer, PATH_MAX, "%s/%s", cwd, input);
-}//end function build_abs_path
+void build_abs_path(char *abs_path,
+                    const char *loggedCwd,
+                    const char *user_path) {
+
+    if (!abs_path || !loggedCwd || !user_path) {
+        return;
+    } // end if
+
+    // Case 1: absolute path
+    if (user_path[0] == '/') {
+        // loggedCwd is the root of the user
+        snprintf(abs_path, PATH_MAX, "%s%s", loggedCwd, user_path);
+    }
+    // Case 2: relative path
+    else {
+        snprintf(abs_path, PATH_MAX, "%s/%s", loggedCwd, user_path);
+    } // end else
+
+    // Minimal normalization: remove "//"
+    char *p;
+    while ((p = strstr(abs_path, "//")) != NULL) {
+        memmove(p, p + 1, strlen(p));
+    } // end while
+}// end build_abs_path
