@@ -599,7 +599,63 @@ void handle_client(int client_sock) {
             }
         }
         
+
+        
+      } else if(strcmp(firstToken,"write")==0){
+        if(loggedUser[0]=='\0'){
+          send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+        }else{
+            char *pathToken = secondToken;
+            long offset = 0;
+            
+            if(secondToken && strncmp(secondToken, "-offset=", 8) == 0){
+                offset = atol(secondToken + 8);
+                pathToken = thirdToken;
+            }
+            
+            if(pathToken == NULL || strlen(pathToken) == 0){
+                 send_with_cwd(client_sock, "Insert path!\n", loggedUser);
+            } else {
+                // Use "create" logic to validate parent directory (works for new and existing files)
+                 if(resolve_and_check_path(pathToken, loggedCwd, "create")==1){
+                     // up to root
+                    if (seteuid(0) == -1) {
+                        perror("seteuid(0) failed");
+                        return;
+                    }
+
+                    // impersonate loggedUser
+                    if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+                        perror("seteuid(user) failed");
+                        return;
+                    }
+                    
+                    char abs_path[PATH_MAX];
+                    char cwd[PATH_MAX];
+                    getcwd(cwd, sizeof(cwd));
+                    build_abs_path(abs_path, cwd, pathToken);
+                    
+                    handle_write(client_sock, abs_path, loggedUser, offset);
+                    
+                     // up to root
+                    if (seteuid(0) == -1) {
+                        perror("seteuid(0) failed");
+                        return;
+                    }
+                    // restore original uid
+                    if (seteuid(original_uid) == -1) {
+                        perror("Error restoring effective UID");
+                        return;
+                    }
+
+                } else {
+                    send_with_cwd(client_sock, "Error in the file write!\n", loggedUser);
+                }
+            }
+        }
+
       }else if(strcmp(firstToken,"delete")==0){
+
 
         if(loggedUser[0]=='\0'){
           send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);

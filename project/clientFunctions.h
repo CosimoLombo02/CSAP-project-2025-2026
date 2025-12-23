@@ -175,3 +175,77 @@ int client_read(int client_socket) {
     
     return 0;
 }//end client_read
+
+//this function handles the write command client side
+int client_write(int client_socket) {
+    char temp_filename[] = "/tmp/csap_write_XXXXXX";
+    int temp_fd = mkstemp(temp_filename);
+    if (temp_fd == -1) {
+        perror("mkstemp");
+        return -1;
+    }
+
+    printf("Enter text. Press Ctrl+D to finish.\n");
+
+    // Read from stdin and write to temp file
+    char buf[BUFFER_SIZE];
+    ssize_t n;
+    while ((n = read(STDIN_FILENO, buf, BUFFER_SIZE)) > 0) {
+        if (write(temp_fd, buf, n) != n) {
+            perror("write temp");
+            close(temp_fd);
+            unlink(temp_filename);
+            return -1;
+        }
+    }
+    
+    // Get file size
+    struct stat st;
+    if (fstat(temp_fd, &st) < 0) {
+        perror("fstat");
+        close(temp_fd);
+        unlink(temp_filename);
+        return -1;
+    }
+    
+    // Rewind for reading
+    if (lseek(temp_fd, 0, SEEK_SET) < 0) {
+        perror("lseek");
+        close(temp_fd);
+        unlink(temp_filename);
+        return -1;
+    }
+
+    // Send OK to handshake
+    if (send(client_socket, "OK\n", 3, 0) < 0) {
+        perror("send OK");
+        close(temp_fd);
+        unlink(temp_filename);
+        return -1;
+    }
+
+    // Send Size
+    uint64_t file_size = st.st_size;
+    uint64_t net_size = htobe64(file_size);
+    if (send_all(client_socket, &net_size, sizeof(net_size)) < 0) {
+        perror("send size");
+        close(temp_fd);
+        unlink(temp_filename);
+        return -1;
+    }
+
+    // Send Content
+    while ((n = read(temp_fd, buf, sizeof(buf))) > 0) {
+        if (send_all(client_socket, buf, n) < 0) {
+            perror("send content");
+            close(temp_fd);
+            unlink(temp_filename);
+            return -1;
+        }
+    }
+
+    close(temp_fd);
+    unlink(temp_filename);
+    
+    return 0;
+}//end client_write

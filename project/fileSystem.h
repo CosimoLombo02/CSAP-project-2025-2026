@@ -449,10 +449,6 @@ int handle_delete(char *server_path) {
 
 //this function handles the read command
 void handle_read(int client_sock, char *server_path, char *loggedUser, long offset) {
-
-
-    //debug
-    printf("Server path: %s\n", server_path);
     
     // Check access
     if (access(server_path, R_OK) != 0) {
@@ -534,6 +530,86 @@ void handle_read(int client_sock, char *server_path, char *loggedUser, long offs
     // Send final prompt
     send_with_cwd(client_sock, "", loggedUser); 
 }//end handle_read
+
+//this function handles the write command
+void handle_write(int client_sock, char *server_path, char *loggedUser, long offset) {
+    int fd;
+    
+    // Check if file exists to determine flags
+    if (access(server_path, F_OK) != 0) {
+        // Create new
+        fd = open(server_path, O_WRONLY | O_CREAT, 0700);
+    } else {
+        // Open existing without truncation (for patching)
+        fd = open(server_path, O_WRONLY);
+    }
+
+    if (fd < 0) {
+        send_with_cwd(client_sock, "Error opening/creating file\n", loggedUser);
+        return;
+    }
+
+    if (offset > 0) {
+        if (lseek(fd, offset, SEEK_SET) < 0) {
+             send_with_cwd(client_sock, "Error seeking file\n", loggedUser);
+             close(fd);
+             return;
+        }
+    }
+
+    // Send READY!
+    char ready_msg[64];
+    snprintf(ready_msg, sizeof(ready_msg), "READY!\n");
+    if (send(client_sock, ready_msg, strlen(ready_msg), 0) < 0) {
+        perror("send ready");
+        close(fd);
+        return;
+    }
+
+    // Wait for client OK
+    char response[16] = {0};
+    if (recv(client_sock, response, sizeof(response) - 1, 0) <= 0) {
+        close(fd);
+        return;
+    }
+
+    if (strncmp(response, "OK", 2) != 0) {
+        close(fd);
+        return; 
+    }
+
+    // Receive size
+    uint64_t net_size;
+    if (recv(client_sock, &net_size, sizeof(net_size), MSG_WAITALL) != sizeof(net_size)) {
+        close(fd);
+        return;
+    }
+    uint64_t file_size = be64toh(net_size);
+
+    // Receive content
+    char buffer[BUFFER_SIZE];
+    uint64_t bytes_received = 0;
+    while (bytes_received < file_size) {
+        size_t to_read = BUFFER_SIZE;
+        if (to_read > (size_t)(file_size - bytes_received)) to_read = (size_t)(file_size - bytes_received);
+
+        ssize_t n = recv(client_sock, buffer, to_read, 0);
+        if (n <= 0) {
+            close(fd);
+            return;
+        }
+        
+        if (write(fd, buffer, n) != n) {
+            // Write failed
+            break;
+        }
+        bytes_received += (uint64_t)n;
+    }
+    close(fd);
+
+    send_with_cwd(client_sock, "Write successful!\n", loggedUser);
+}//end handle_write
+
 
 
     

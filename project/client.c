@@ -286,6 +286,25 @@ int main(int argc, char *argv[]) {
          }
     }
     
+    // Write command handling
+    if (c1 && strcmp(c1, "write") == 0) {
+        if (strstr(buffer, "READY!") != NULL) {
+            client_write(sock);
+             // Wait for final response
+             char resp_buf[BUFFER_SIZE];
+             int n_resp = read(sock, resp_buf, BUFFER_SIZE - 1);
+             if (n_resp > 0) {
+                 resp_buf[n_resp] = '\0';
+                 update_prompt(resp_buf);
+                 printf("%s", resp_buf);
+             }
+             continue;
+        } else {
+             // If server sent error instead of READY
+        }
+    }
+
+    
     if (c1 && strcmp(c1, "download") == 0 && c2 && c3) {
         // Foreground download
         // Check if server said "READY!"
