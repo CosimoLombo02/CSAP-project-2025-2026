@@ -180,3 +180,7 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
     
 } // end resolve_and_check_path
 
+// Helper function to build the absolute path
+void build_abs_path(char *buffer, const char *cwd, const char *input) {
+    snprintf(buffer, PATH_MAX, "%s/%s", cwd, input);
+}//end function build_abs_path

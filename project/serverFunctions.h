@@ -182,6 +182,9 @@ void create_user(char *username, char *permissions, int client_sock) {
   return;
 } // end function create_user
 
+
+
+
 /*This function is a the main function that handles the client,
 as we can see it has different behaviuors based on the message received  */
 void handle_client(int client_sock) {
@@ -479,6 +482,109 @@ void handle_client(int client_sock) {
           }//end else third token
         }//end else second token
       }//end else loggedUser chmod 
+        
+      }else if(strcmp(firstToken,"mv")==0){
+        if(loggedUser[0]=='\0'){
+          send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+        }else{
+          if(secondToken==NULL || strlen(secondToken)==0){
+            send_with_cwd(client_sock, "Insert old path!", loggedUser);
+          }else{
+            if(thirdToken==NULL || strlen(thirdToken)==0){
+              send_with_cwd(client_sock, "Insert new path!", loggedUser);
+            }else{
+              if(resolve_and_check_path(secondToken, loggedCwd, "mv")==1){
+                if(resolve_and_check_path(thirdToken, loggedCwd, "mv")==1){
+                  
+                  // up to root
+                  if (seteuid(0) == -1) {
+                    perror("seteuid(0) failed");
+                    return;
+                  }
+
+                  // impersonate loggedUser
+                  if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+                    perror("seteuid(user) failed");
+                    return;
+                  }
+
+                  if(handle_mv(old_abs, new_abs)==-1){
+                    send_with_cwd(client_sock, "Error in the file mv!(error mv function)\n", loggedUser);
+                  }else{
+                    send_with_cwd(client_sock, "File moved successfully!\n", loggedUser);
+                  }
+
+                  // up to root
+                  if (seteuid(0) == -1) {
+                    perror("seteuid(0) failed");
+                    return;
+                  }
+
+                  // restore original uid
+                  if (seteuid(original_uid) == -1) {
+                    perror("Error restoring effective UID");
+                    return;
+                  }
+
+                }else{
+                  send_with_cwd(client_sock, "Error in the file mv!(error resolve_and_check_path function1)\n", loggedUser);
+                }
+              }else{
+                send_with_cwd(client_sock, "Error in the file mv!(error resolve_and_check_path function2)\n", loggedUser);
+              }
+            }//end else third token mv 
+          }//end else second token mv 
+        }//end else logged user mv
+        
+      }else if(strcmp(firstToken,"delete")==0){
+        if(loggedUser[0]=='\0'){
+          send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+        }else{
+          if(secondToken==NULL || strlen(secondToken)==0){
+            send_with_cwd(client_sock, "Insert path!\n", loggedUser);
+          }else{
+            if(resolve_and_check_path(secondToken, loggedCwd, "delete")==1){
+              
+              // up to root
+              if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+              }
+
+              // impersonate loggedUser
+              if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+                perror("seteuid(user) failed");
+                return;
+              }
+
+              // build absolute path
+              char abs_path[PATH_MAX];
+              build_abs_path(abs_path, loggedCwd, secondToken);
+
+              if(handle_delete(abs_path)==-1){
+                send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
+              }else{
+                send_with_cwd(client_sock, "File deleted successfully!\n", loggedUser);
+              }
+
+              // up to root
+              if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+              }
+
+              // restore original uid
+              if (seteuid(original_uid) == -1) {
+                perror("Error restoring effective UID");
+                return;
+              }
+
+            }else{
+              send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
+            }
+          }//end else second token delete
+        }//end else logged user delete
+       
         
       }else{
         send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);

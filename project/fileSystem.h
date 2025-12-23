@@ -407,11 +407,24 @@ int handle_chmod(char *server_path, char *permissions) {
 
     // 4. Release Lock (Explicitly)
     // LOCK_UN = Unlock
-    flock(fd, LOCK_UN);
+    flock(fd, LOCK_UN); //yes its paranoic but it works!
 
     // Close file
     close(fd);
     
     return result;
 }//end handle_chmod
+
+//this functions move a file from the old path to the new path
+//just a prototype without locks
+int handle_mv(char *old_path, char *new_path) {
+    return rename(old_path, new_path);
+}//end handle_mv
+
+//this functions delete a file
+//just a prototype without locks
+int handle_delete(char *server_path) {
+    return unlink(server_path);
+}//end handle_delete
+
     
