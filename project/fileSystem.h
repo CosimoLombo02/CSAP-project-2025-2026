@@ -447,4 +447,93 @@ int handle_delete(char *server_path) {
     return unlink(server_path);
 }//end handle_delete
 
+//this function handles the read command
+void handle_read(int client_sock, char *server_path, char *loggedUser, long offset) {
+
+
+    //debug
+    printf("Server path: %s\n", server_path);
+    
+    // Check access
+    if (access(server_path, R_OK) != 0) {
+        send_with_cwd(client_sock, "File not found or permission denied\n", loggedUser);
+        return;
+    }
+
+    struct stat st;
+    if (stat(server_path, &st) < 0 || !S_ISREG(st.st_mode)) {
+        send_with_cwd(client_sock, "Invalid file\n", loggedUser);
+        return;
+    }
+
+    int fd = open(server_path, O_RDONLY);
+    if (fd < 0) {
+        send_with_cwd(client_sock, "Error opening file\n", loggedUser);
+        return;
+    }
+
+    // Handle offset
+    if (offset < 0) offset = 0;
+    if (offset > st.st_size) offset = st.st_size;
+
+    if (lseek(fd, offset, SEEK_SET) < 0) {
+         send_with_cwd(client_sock, "Error seeking file\n", loggedUser);
+         close(fd);
+         return;
+    }
+
+    // Send READY!
+    char ready_msg[64];
+    snprintf(ready_msg, sizeof(ready_msg), "READY!\n");
+    if (send(client_sock, ready_msg, strlen(ready_msg), 0) < 0) {
+        perror("send ready");
+        close(fd);
+        return;
+    }
+
+    // Wait for client OK
+    char response[16] = {0};
+    if (recv(client_sock, response, sizeof(response) - 1, 0) <= 0) {
+        close(fd);
+        return;
+    }
+
+    if (strncmp(response, "OK", 2) != 0) {
+        close(fd);
+        return; // Client aborted
+    }
+
+    uint64_t bytes_to_send = st.st_size - offset;
+    uint64_t net_size = htobe64(bytes_to_send);
+    
+    // Send size
+    if (send(client_sock, &net_size, sizeof(net_size), 0) < 0) {
+        perror("send size");
+        close(fd);
+        return;
+    }
+
+    // Send file content
+    char buffer[BUFFER_SIZE];
+    ssize_t n;
+    uint64_t sent = 0;
+    while (sent < bytes_to_send && (n = read(fd, buffer, sizeof(buffer))) > 0) {
+        // Handle case where we might read more than needed if file grew? 
+        // Or if we interpret logic strictly: we read until end. 
+        // But we promised 'bytes_to_send'. 
+        // read() returns what it can.
+        
+        if (send(client_sock, buffer, n, 0) < 0) {
+            perror("send file");
+            break;
+        }
+        sent += n;
+    }
+    close(fd);
+
+    // Send final prompt
+    send_with_cwd(client_sock, "", loggedUser); 
+}//end handle_read
+
+
     

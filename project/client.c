@@ -270,6 +270,22 @@ int main(int argc, char *argv[]) {
     char *c2 = strtok(NULL, " "); // server path (for download) or local path (for upload)
     char *c3 = strtok(NULL, " "); // client path (for download) or remote path (for upload)
     
+    if (c1 && strcmp(c1, "read") == 0) {
+         if (strstr(buffer, "READY!") != NULL) {
+             client_read(sock);
+             
+             // The server sends the prompt after the file content
+             char prompt_buf[BUFFER_SIZE];
+             int n_prompt = read(sock, prompt_buf, BUFFER_SIZE-1);
+             if (n_prompt > 0) {
+                 prompt_buf[n_prompt] = '\0';
+                 update_prompt(prompt_buf);
+                 printf("\n%s", prompt_buf);
+             }
+             continue;
+         }
+    }
+    
     if (c1 && strcmp(c1, "download") == 0 && c2 && c3) {
         // Foreground download
         // Check if server said "READY!"

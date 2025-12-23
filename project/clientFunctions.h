@@ -128,5 +128,50 @@ int client_upload(char *client_path, int client_socket, char *loggedUser) {
     }
     close(fd);
 
+
 return 0;
 }//end client_upload
+
+//this function handles the read command client side
+int client_read(int client_socket) {
+    
+    // Send OK to server to start receiving
+    if (send(client_socket, "OK\n", 3, 0) < 0) {
+        perror("send OK");
+        return -1;
+    }
+
+    // Receive size
+    uint64_t net_size;
+    if (recv(client_socket, &net_size, sizeof(net_size), MSG_WAITALL) != sizeof(net_size)) {
+        perror("recv size");
+        return -1;
+    }
+    uint64_t file_size = be64toh(net_size);
+
+    // Receive content and print to stdout
+    char buffer[BUFFER_SIZE];
+    uint64_t bytes_received = 0;
+    while (bytes_received < file_size) {
+        size_t to_read = BUFFER_SIZE;
+        if (to_read > (size_t)(file_size - bytes_received)) to_read = (size_t)(file_size - bytes_received);
+
+        ssize_t n = recv(client_socket, buffer, to_read, 0);
+        if (n <= 0) {
+            perror("recv file");
+            return -1;
+        }
+
+        if (write(STDOUT_FILENO, buffer, n) != n) {
+            perror("write to stdout");
+            return -1;
+        }
+        bytes_received += (uint64_t)n;
+    }
+    // ensure a newline at the end if not present? POSIX usually implies text files end with newline.
+    // user requirement just says "print it in stdout". 
+    // If the file content doesn't have a newline at end, the prompt might appear on same line. 
+    // Ideally we print exactly what we get.
+    
+    return 0;
+}//end client_read
