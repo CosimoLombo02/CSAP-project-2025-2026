@@ -385,9 +385,7 @@ void handle_client(int client_sock) {
             if(fourthToken==NULL || strlen(fourthToken)==0){
               if(resolve_and_check_path(thirdToken, loggedCwd, "upload")==1){
 
-                // seteuid(0);
-
-               //call function
+              
                // up to root
               if (seteuid(0) == -1) {
                 perror("seteuid(0) failed");
@@ -423,7 +421,32 @@ void handle_client(int client_sock) {
                 send_with_cwd(client_sock, "Insert local path!\n", loggedUser);
               }else{
                 if(resolve_and_check_path(secondToken, loggedCwd, "download")==1){
-                    handle_download(client_sock, secondToken, loggedUser);
+
+                  // up to root
+              if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+              } // end if seteuid
+
+              // set the uid of the user
+              if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+                perror("seteuid(user) failed");
+                return;
+              } // end if seteuid
+
+              handle_download(client_sock, secondToken, loggedUser);
+
+              // up to root
+              if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+              } // end if seteuid
+
+              // restore the original uid
+              if (seteuid(original_uid) == -1) {
+                perror("Error restoring effective UID");
+                return;
+                    } // end if seteuid
                 }else{
                     send_with_cwd(client_sock, "Error in the file download!\n", loggedUser);
                 }//end else resolve_and_check_path

@@ -40,7 +40,7 @@ int lock_exclusive_fd(int fd) {
     fl.l_start  = 0;
     fl.l_len    = 0;
 
-    while (fcntl(fd, F_SETLKW, &fl) == -1) {
+    while (fcntl(fd, F_SETLK, &fl) == -1) {
         if (errno == EINTR) continue;
         return -1;
     } // end while
@@ -308,9 +308,17 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
 void handle_upload(int client_sock, char *server_path, char* client_path, char *loggedUser, uid_t uid, gid_t gid) {
   
   char final_path[PATH_MAX];
+  struct stat info;
 
-  // server_path is the target directory (e.g. "docs"), client_path is the local file (e.g. "/tmp/a.txt")
-  snprintf(final_path, sizeof(final_path), "%s/%s", server_path, basename(client_path));
+  // Check if server_path is a directory
+  if (stat(server_path, &info) == 0 && S_ISDIR(info.st_mode)) {
+      // It's a directory, append client filename
+      snprintf(final_path, sizeof(final_path), "%s/%s", server_path, basename(client_path));
+  } else {
+      // It's a file path (new or existing), use as is
+      strncpy(final_path, server_path, sizeof(final_path));
+      final_path[sizeof(final_path) - 1] = '\0';
+  }
 
   // sends READY
   char ready_msg[PATH_MAX + 32];
