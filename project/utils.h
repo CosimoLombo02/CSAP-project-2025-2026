@@ -5,6 +5,8 @@
 #include <grp.h>
 #include <pwd.h>
 #include <libgen.h>
+#include <fcntl.h>
+
 
 // global variables
 extern char original_cwd[PATH_MAX];

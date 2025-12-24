@@ -169,7 +169,6 @@ int client_read(int client_socket) {
         bytes_received += (uint64_t)n;
     }
     // ensure a newline at the end if not present? POSIX usually implies text files end with newline.
-    // user requirement just says "print it in stdout". 
     // If the file content doesn't have a newline at end, the prompt might appear on same line. 
     // Ideally we print exactly what we get.
     

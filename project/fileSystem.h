@@ -15,6 +15,54 @@
 
 extern char start_cwd[PATH_MAX];
 
+// lock the file with shared lock
+int lock_shared_fd(int fd) {
+    struct flock fl;
+    memset(&fl, 0, sizeof(fl));
+    fl.l_type   = F_RDLCK;   // shared
+    fl.l_whence = SEEK_SET;
+    fl.l_start  = 0;
+    fl.l_len    = 0;         // whole file
+
+    while (fcntl(fd, F_SETLK, &fl) == -1) {
+        if (errno == EINTR) continue;
+        return -1;
+    } // end while
+    return 0;
+} // end lock_shared_fd
+
+// lock the file with exclusive lock
+int lock_exclusive_fd(int fd) {
+    struct flock fl;
+    memset(&fl, 0, sizeof(fl));
+    fl.l_type   = F_WRLCK;   // exclusive
+    fl.l_whence = SEEK_SET;
+    fl.l_start  = 0;
+    fl.l_len    = 0;
+
+    while (fcntl(fd, F_SETLKW, &fl) == -1) {
+        if (errno == EINTR) continue;
+        return -1;
+    } // end while
+    return 0;
+} // end lock_exclusive_fd
+
+// unlock the file
+int unlock_fd(int fd) {
+    struct flock fl;
+    memset(&fl, 0, sizeof(fl));
+    fl.l_type   = F_UNLCK;
+    fl.l_whence = SEEK_SET;
+    fl.l_start  = 0;
+    fl.l_len    = 0;
+
+    while (fcntl(fd, F_SETLKW, &fl) == -1) {
+        if (errno == EINTR) continue;
+        return -1;
+    } // end while
+    return 0;
+} // end unlock_fd
+
 // create a directory
 int create_directory(char *directory, mode_t permissions) {
   if (directory == NULL || strlen(directory) == 0) {
@@ -291,6 +339,14 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
     return;
   }
 
+  // Lock the file (Exclusive)
+  if (lock_exclusive_fd(fileno(fd)) < 0) {
+      perror("lock_exclusive_fd");
+      send_with_cwd(client_sock, "Error locking file\n", loggedUser);
+      fclose(fd);
+      return;
+  }
+
   uint64_t file_size = be64toh(net_size);
 
   char buffer[BUFFER_SIZE];
@@ -301,13 +357,15 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
     if (to_read > (size_t)(file_size - bytes_received)) to_read = (size_t)(file_size - bytes_received);
 
     ssize_t n = recv(client_sock, buffer, to_read, 0);
-    if (n <= 0) { fclose(fd); return; }
+    if (n <= 0) { unlock_fd(fileno(fd)); fclose(fd); return; }
 
     fwrite(buffer, 1, (size_t)n, fd);
     bytes_received += (uint64_t)n;
   }
 
   
+  
+  unlock_fd(fileno(fd));
   fclose(fd);
 
   // here we change the owner of the file
@@ -331,6 +389,21 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
         return;
     }
 
+    // Open and Lock BEFORE sending READY to ensure we can read
+    int fd = open(server_path, O_RDONLY);
+    if (fd < 0) {
+        send_with_cwd(client_sock, "Error opening server file\n", loggedUser);
+        return;
+    }
+
+    // Lock the file (Shared)
+    if (lock_shared_fd(fd) < 0) {
+        perror("lock_shared_fd");
+        send_with_cwd(client_sock, "Error locking file\n", loggedUser);
+        close(fd);
+        return;
+    }
+
     // Send READY!
     char ready_msg[64];
     snprintf(ready_msg, sizeof(ready_msg), "READY!\n");
@@ -339,10 +412,14 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
     // Wait for client OK
     char response[16] = {0};
     if (recv(client_sock, response, sizeof(response) - 1, 0) <= 0) {
+        unlock_fd(fd);
+        close(fd);
         return;
     }
 
     if (strncmp(response, "OK", 2) != 0) {
+        unlock_fd(fd);
+        close(fd);
         return; // Client aborted
     }
 
@@ -352,16 +429,12 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
     // Send size
     if (send(client_sock, &net_size, sizeof(net_size), 0) < 0) {
         perror("send size");
+        unlock_fd(fd);
+        close(fd);
         return;
     }
 
-    // Send file content
-    int fd = open(server_path, O_RDONLY);
-    if (fd < 0) {
-        perror("open server file");
-        return;
-    }
-
+    // Send file content (fd is already open and locked)
     char buffer[BUFFER_SIZE];
     ssize_t n;
     while ((n = read(fd, buffer, BUFFER_SIZE)) > 0) {
@@ -370,6 +443,8 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
             break;
         }
     }
+    
+    unlock_fd(fd);
     close(fd);
 
     // Send final prompt (empty message triggers prompt update in client)
@@ -444,11 +519,34 @@ int handle_mv(const char *old_abs, const char *new_abs) {
 //this functions delete a file
 //just a prototype without locks
 int handle_delete(char *server_path) {
-    return unlink(server_path);
+    // 1. Open the file to lock it
+    int fd = open(server_path, O_RDONLY);
+    if (fd < 0) {
+        // if the file doesn't exist, we just unlink it
+        return unlink(server_path);
+    }
+
+    // 2. Lock Exclusive (to ensure no one is reading/writing)
+    if (lock_exclusive_fd(fd) < 0) {
+        perror("lock_exclusive_fd delete");
+        close(fd);
+        return -1; // Locked by someone else
+    }
+
+    // 3. Unlink
+    int res = unlink(server_path);
+
+    // 4. Unlock and close
+    unlock_fd(fd);
+    close(fd);
+    
+    return res;
 }//end handle_delete
 
 //this function handles the read command
 void handle_read(int client_sock, char *server_path, char *loggedUser, long offset) {
+    int fd = -1;
+    int locked = 0;
     
     // Check access
     if (access(server_path, R_OK) != 0) {
@@ -462,11 +560,25 @@ void handle_read(int client_sock, char *server_path, char *loggedUser, long offs
         return;
     }
 
-    int fd = open(server_path, O_RDONLY);
+    fd = open(server_path, O_RDONLY);
     if (fd < 0) {
         send_with_cwd(client_sock, "Error opening file\n", loggedUser);
         return;
     }
+
+    // Lock the file
+    if (lock_shared_fd(fd) < 0) {
+        perror("lock_shared_fd");
+        send_with_cwd(client_sock, "Error locking file\n", loggedUser);
+        goto release;
+    } // end lock_shared_fd
+    locked = 1;
+
+    // Get file size, check if it is a regular file
+    if (fstat(fd, &st) < 0) {
+        send_with_cwd(client_sock, "Invalid file\n", loggedUser);
+        goto release;
+    } // end fstat
 
     // Handle offset
     if (offset < 0) offset = 0;
@@ -474,8 +586,7 @@ void handle_read(int client_sock, char *server_path, char *loggedUser, long offs
 
     if (lseek(fd, offset, SEEK_SET) < 0) {
          send_with_cwd(client_sock, "Error seeking file\n", loggedUser);
-         close(fd);
-         return;
+         goto release;
     }
 
     // Send READY!
@@ -483,20 +594,17 @@ void handle_read(int client_sock, char *server_path, char *loggedUser, long offs
     snprintf(ready_msg, sizeof(ready_msg), "READY!\n");
     if (send(client_sock, ready_msg, strlen(ready_msg), 0) < 0) {
         perror("send ready");
-        close(fd);
-        return;
+        goto release;
     }
 
     // Wait for client OK
     char response[16] = {0};
     if (recv(client_sock, response, sizeof(response) - 1, 0) <= 0) {
-        close(fd);
-        return;
+        goto release; 
     }
 
     if (strncmp(response, "OK", 2) != 0) {
-        close(fd);
-        return; // Client aborted
+        goto release; 
     }
 
     uint64_t bytes_to_send = st.st_size - offset;
@@ -505,8 +613,7 @@ void handle_read(int client_sock, char *server_path, char *loggedUser, long offs
     // Send size
     if (send(client_sock, &net_size, sizeof(net_size), 0) < 0) {
         perror("send size");
-        close(fd);
-        return;
+        goto release;
     }
 
     // Send file content
@@ -514,10 +621,6 @@ void handle_read(int client_sock, char *server_path, char *loggedUser, long offs
     ssize_t n;
     uint64_t sent = 0;
     while (sent < bytes_to_send && (n = read(fd, buffer, sizeof(buffer))) > 0) {
-        // Handle case where we might read more than needed if file grew? 
-        // Or if we interpret logic strictly: we read until end. 
-        // But we promised 'bytes_to_send'. 
-        // read() returns what it can.
         
         if (send(client_sock, buffer, n, 0) < 0) {
             perror("send file");
@@ -525,15 +628,24 @@ void handle_read(int client_sock, char *server_path, char *loggedUser, long offs
         }
         sent += n;
     }
-    close(fd);
 
     // Send final prompt
     send_with_cwd(client_sock, "", loggedUser); 
+
+    release:
+    if (locked) {
+        if (unlock_fd(fd) < 0) {
+            perror("unlock_fd");
+        }
+    } // end unlock_fd
+    if (fd >= 0) close(fd);
+    return;
 }//end handle_read
 
 //this function handles the write command
 void handle_write(int client_sock, char *server_path, char *loggedUser, long offset) {
-    int fd;
+    int fd = -1;
+    int locked = 0;
     
     // Check if file exists to determine flags
     if (access(server_path, F_OK) != 0) {
@@ -549,11 +661,18 @@ void handle_write(int client_sock, char *server_path, char *loggedUser, long off
         return;
     }
 
+    // Lock the file with exclusive lock
+    if (lock_exclusive_fd(fd) < 0) {
+        perror("lock_exclusive_fd");
+        send_with_cwd(client_sock, "Error locking file\n", loggedUser);
+        goto release;
+    } // end lock_exclusive_fd
+    locked = 1;
+
     if (offset > 0) {
         if (lseek(fd, offset, SEEK_SET) < 0) {
              send_with_cwd(client_sock, "Error seeking file\n", loggedUser);
-             close(fd);
-             return;
+             goto release;
         }
     }
 
@@ -562,27 +681,23 @@ void handle_write(int client_sock, char *server_path, char *loggedUser, long off
     snprintf(ready_msg, sizeof(ready_msg), "READY!\n");
     if (send(client_sock, ready_msg, strlen(ready_msg), 0) < 0) {
         perror("send ready");
-        close(fd);
-        return;
+        goto release;
     }
 
     // Wait for client OK
     char response[16] = {0};
     if (recv(client_sock, response, sizeof(response) - 1, 0) <= 0) {
-        close(fd);
-        return;
+        goto release;
     }
 
     if (strncmp(response, "OK", 2) != 0) {
-        close(fd);
-        return; 
+        goto release; 
     }
 
     // Receive size
     uint64_t net_size;
     if (recv(client_sock, &net_size, sizeof(net_size), MSG_WAITALL) != sizeof(net_size)) {
-        close(fd);
-        return;
+        goto release;
     }
     uint64_t file_size = be64toh(net_size);
 
@@ -595,19 +710,26 @@ void handle_write(int client_sock, char *server_path, char *loggedUser, long off
 
         ssize_t n = recv(client_sock, buffer, to_read, 0);
         if (n <= 0) {
-            close(fd);
-            return;
+            goto release;
         }
         
         if (write(fd, buffer, n) != n) {
-            // Write failed
+            // write not completed
             break;
-        }
+        } // end if write check
         bytes_received += (uint64_t)n;
-    }
-    close(fd);
+    } // end while
 
     send_with_cwd(client_sock, "Write successful!\n", loggedUser);
+
+    release:
+    if (locked) {
+        if (unlock_fd(fd) < 0) {
+            perror("unlock_fd");
+        }
+    } // end unlock_fd
+    if (fd >= 0) close(fd);
+    return;
 }//end handle_write
 
 

@@ -677,11 +677,11 @@ void handle_client(int client_sock) {
                 return;
               }
 
-              // build absolute path
-              char abs_path[PATH_MAX];
-              build_abs_path(abs_path, cwd, secondToken);
+              // under testing
+              //char abs_path[PATH_MAX];
+              //build_abs_path(abs_path, cwd, secondToken);
 
-              if(handle_delete(abs_path)==-1){
+              if(handle_delete(secondToken)==-1){
                 send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
               }else{
                 send_with_cwd(client_sock, "File deleted successfully!\n", loggedUser);
