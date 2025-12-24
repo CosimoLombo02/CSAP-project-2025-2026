@@ -313,12 +313,20 @@ int main(int argc, char *argv[]) {
             if (client_download(c2, c3, sock) == 0) {
                 printf("Download of %s completed.\n", c2);
                  char prompt_buf[BUFFER_SIZE];
-                 if(read(sock, prompt_buf, BUFFER_SIZE-1) > 0) {
+                 int n = read(sock, prompt_buf, BUFFER_SIZE-1);
+                 if(n > 0) {
+                     prompt_buf[n] = '\0';
                      update_prompt(prompt_buf);
                      printf("%s", prompt_buf);
                  }
             } else {
-                printf("Download failed.\n");
+                send(sock, "ERR\n", 4, 0);
+                int n = recv(sock, buffer, BUFFER_SIZE - 1, 0);
+                if (n > 0) {
+                    buffer[n] = '\0';
+                    update_prompt(buffer);
+                    printf("%s", buffer);
+                }
             }
             continue; // Skip the standard printf and parsing below
         }

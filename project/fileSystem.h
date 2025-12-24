@@ -420,7 +420,8 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
     if (strncmp(response, "OK", 2) != 0) {
         unlock_fd(fd);
         close(fd);
-        return; // Client aborted
+        send_with_cwd(client_sock, "Error downloading file\n", loggedUser);
+        return; // if response is not OK sends error to client and returns
     }
 
     uint64_t file_size = st.st_size;
@@ -520,7 +521,7 @@ int handle_mv(const char *old_abs, const char *new_abs) {
 //just a prototype without locks
 int handle_delete(char *server_path) {
     // 1. Open the file to lock it
-    int fd = open(server_path, O_RDONLY);
+    int fd = open(server_path, O_WRONLY);
     if (fd < 0) {
         // if the file doesn't exist, we just unlink it
         return unlink(server_path);

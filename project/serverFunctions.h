@@ -419,12 +419,16 @@ void handle_client(int client_sock) {
             if(secondToken==NULL || strlen(secondToken)==0){
                 send_with_cwd(client_sock, "Insert server path!\n", loggedUser);
             } else {
+              if(thirdToken==NULL || strlen(thirdToken)==0){
+                send_with_cwd(client_sock, "Insert local path!\n", loggedUser);
+              }else{
                 if(resolve_and_check_path(secondToken, loggedCwd, "download")==1){
                     handle_download(client_sock, secondToken, loggedUser);
                 }else{
                     send_with_cwd(client_sock, "Error in the file download!\n", loggedUser);
                 }//end else resolve_and_check_path
             }//end else second token
+          }//end else third token
         }//end else loggedUser download
       
     }else if(strcmp(firstToken,"chmod")==0){
