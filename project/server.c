@@ -21,11 +21,110 @@ gid_t original_gid = 0;
 char root_directory[PATH_MAX];
 char original_cwd[PATH_MAX];
 char start_cwd[PATH_MAX];
+SharedState *shared_state = NULL;
+
+// Signal handler for SIGUSR1 (just to interrupt sigsuspend for initial wait)
+void sigusr1_handler(int signo) { }
+
+// Signal for SIGUSR2 (Wake up sender after resolution)
+void sigusr2_handler(int signo) { }
+
+// Signal for SIGRTMIN (Notify receiver of new request)
+/* NOTE: We can't access client_socket easily here to write() unless we make it global or passed in data.
+   However, we are in the main server loop or child process.
+   In the child process (handle_client), distinct signals can interrupt blocking calls?
+   Actually, `handle_client` logic is synchronous. We need a way to notify the client ASYNC.
+   Writing to the socket from a signal handler is risky but common for simple notifications if careful.
+   Better approach: Set a flag and check it in the loop? 
+   But the loop is blocked on `read`.
+   If we write to the socket, it will appear as output to the client.
+*/
+
+// We need a global variable for the current client socket in the child process to write to it.
+int current_client_sock = -1;
+
+void sigrtmin_handler(int signo) {
+    if(!shared_state || current_client_sock == -1) return;
+    
+    // Check for my requests
+    // WARNING: We are in a signal handler. sem_wait is safe in theory but prone to deadlock if interrupted thread holds it.
+    // We REMOVE locking here. We read shared memory optimistically.
+    
+    pid_t my_pid = getpid();
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        // Simple read of valid and receiver_pid. If we see a partial write, it's unlikely to match both our PID and valid=1.
+        if(shared_state->requests[i].valid && 
+           shared_state->requests[i].receiver_pid == my_pid) {
+               
+            // Find filename manually to avoid non-async-safe basename()
+            char msg[512];
+            char *fname = shared_state->requests[i].filename;
+            char *p = strrchr(fname, '/');
+            if (p) fname = p + 1;
+
+            int len = snprintf(msg, sizeof(msg), "\n[!] Incoming Transfer Request (ID: %d) from %s for file %s\nAccept with: accept <dir> %d\nReject with: reject %d\n> ", 
+                     shared_state->requests[i].id, 
+                     shared_state->requests[i].sender, 
+                     fname,
+                     shared_state->requests[i].id,
+                     shared_state->requests[i].id);
+            
+            write(current_client_sock, msg, len);
+        }
+    }
+}
 
 // the client is handled by specific functions in serverFunctions.h
 int main(int argc, char *argv[]) {
 
   strncpy(start_cwd, getcwd(original_cwd, PATH_MAX), PATH_MAX);
+
+  // Initialize shared memory
+  shared_state = (SharedState *)mmap(NULL, sizeof(SharedState), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  if (shared_state == MAP_FAILED) {
+      perror("mmap failed");
+      exit(1);
+  }
+
+  // Initialize mutex (semaphore) with PROCESS_SHARED attribute (1 = pshared, 1 = initial value)
+  if (sem_init(&shared_state->mutex, 1, 1) < 0) {
+      perror("sem_init failed");
+      exit(1);
+  }
+
+  // Initialize logged users and waiters and requests
+  for(int i=0; i<MAX_CLIENTS; i++) {
+      shared_state->logged_users[i].valid = 0;
+      shared_state->waiters[i].valid = 0;
+      shared_state->requests[i].valid = 0;
+  }
+  shared_state->request_counter = 1;
+
+  // Setup SIGUSR1 handler
+  struct sigaction sa;
+  sa.sa_handler = sigusr1_handler;
+  sa.sa_flags = 0; 
+  sigemptyset(&sa.sa_mask);
+  if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+       perror("sigaction SIGUSR1");
+       exit(1);
+  }
+
+  // Setup SIGUSR2
+  sa.sa_handler = sigusr2_handler;
+  sa.sa_flags = SA_RESTART;
+  if(sigaction(SIGUSR2, &sa, NULL) == -1) {
+       perror("sigaction SIGUSR2");
+       exit(1);
+  }
+
+  // Setup SIGRTMIN
+  sa.sa_handler = sigrtmin_handler;
+  sa.sa_flags = SA_RESTART;
+  if(sigaction(SIGRTMIN, &sa, NULL) == -1) {
+       perror("sigaction SIGRTMIN");
+       exit(1);
+  }
 
   // get the uid and gid of the user that started the server
   const char *sudo_uid = getenv("SUDO_UID");

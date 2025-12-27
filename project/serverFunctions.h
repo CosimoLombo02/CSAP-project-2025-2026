@@ -9,6 +9,47 @@
 #include <libgen.h>
 #include "fileSystem.h"
 #include "utils.h"
+#include <semaphore.h>
+#include <signal.h>
+#include <sys/mman.h>
+
+#define MAX_CLIENTS 50
+
+// Structure to track waiting processes
+typedef struct {
+    pid_t pid;
+    char target_user[64];
+    int valid; // 1 = waiting, 0 = empty
+} WaitingProcess;
+
+// Shared Memory Structure
+typedef struct {
+    char username[64];
+    pid_t pid; // Process ID handling this user
+    int valid; // 0 = empty, 1 = occupied
+} LoggedUser;
+
+typedef struct {
+    int id;
+    char sender[64];
+    pid_t sender_pid;
+    char receiver[64];
+    pid_t receiver_pid;
+    char filename[PATH_MAX]; // Absolute path
+    int valid;
+} TransferRequest;
+
+typedef struct {
+    LoggedUser logged_users[MAX_CLIENTS];
+    WaitingProcess waiters[MAX_CLIENTS];
+    TransferRequest requests[MAX_CLIENTS];
+    int request_counter;
+    sem_t mutex; // Semaphore for mutual exclusion
+} SharedState;
+
+// Global pointer to shared memory (must be initialized in main/server.c)
+extern SharedState *shared_state;
+extern int current_client_sock;
 
 // Global variables
 extern uid_t original_uid;
@@ -185,9 +226,375 @@ void create_user(char *username, char *permissions, int client_sock) {
 
 
 
+// Helper to remove user from shared memory
+void remove_logged_user(char *username) {
+    if(!username || strlen(username) == 0 || !shared_state) return;
+
+    sem_wait(&shared_state->mutex);
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(shared_state->logged_users[i].valid && strcmp(shared_state->logged_users[i].username, username) == 0) {
+            shared_state->logged_users[i].valid = 0;
+            printf("DEBUG: User %s logged out (removed from shared state)\n", username);
+            break;
+        }
+    }
+    sem_post(&shared_state->mutex);
+}
+
+// Function to handle transfer request with blocking wait
+void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
+    if(!filename || strlen(filename)==0 || !dest_user || strlen(dest_user)==0) {
+        send_with_cwd(client_sock, "Usage: transfer_request <file> <user>\n", loggedUser);
+        return;
+    }
+
+    // Check if dest_user home directory exists in the root directory
+    char dest_user_path[PATH_MAX];
+    snprintf(dest_user_path, sizeof(dest_user_path), "%s/%s", root_directory, dest_user);
+
+    /* 
+    if(check_directory(dest_user_path) == 0) {
+        send_with_cwd(client_sock, "Destination user does not exist!\n", loggedUser);
+        return;
+    }
+        */
+
+    printf("DEBUG: Handling transfer_request for %s -> %s\n", filename, dest_user);
+
+    // Block SIGUSR1 so we can wait for it safely with sigsuspend
+    sigset_t mask, oldmask, waitmask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGUSR1);
+    sigprocmask(SIG_BLOCK, &mask, &oldmask);
+    
+    // Prepare waitmask (oldmask usually emptyset, but let's be safe: it should allow SIGUSR1)
+    waitmask = oldmask;
+    sigdelset(&waitmask, SIGUSR1);
+
+    int found = 0;
+    while(!found) {
+        sem_wait(&shared_state->mutex);
+        
+        // Check if user is online
+        for(int i=0; i<MAX_CLIENTS; i++) {
+            if(shared_state->logged_users[i].valid && strcmp(shared_state->logged_users[i].username, dest_user) == 0) {
+                found = 1;
+                break;
+            }
+        }
+
+        if(found) {
+             sem_post(&shared_state->mutex);
+             break; 
+        }
+
+        // Add myself to waiters
+        int added = 0;
+        int my_slot = -1;
+        for(int i=0; i<MAX_CLIENTS; i++) {
+            if(!shared_state->waiters[i].valid) {
+                 shared_state->waiters[i].pid = getpid();
+                 strncpy(shared_state->waiters[i].target_user, dest_user, 64);
+                 shared_state->waiters[i].valid = 1;
+                 my_slot = i;
+                 added = 1;
+                 break;
+            }
+        }
+        sem_post(&shared_state->mutex);
+
+        if(!added) {
+            // Should not happen if MAX_CLIENTS is enough, but to avoid infinite loop
+            send_with_cwd(client_sock, "Server busy (wait queue full)!\n", loggedUser);
+            sigprocmask(SIG_SETMASK, &oldmask, NULL);
+            return;
+        }
+
+        printf("DEBUG: User %s not online. Waiting (PID %d)...\n", dest_user, getpid());
+        sigsuspend(&waitmask); // Atomic release and wait
+        printf("DEBUG: Woke up!\n");
+        
+        // Cleanup waiter entry before looping or exiting
+        sem_wait(&shared_state->mutex);
+        if(my_slot != -1) shared_state->waiters[my_slot].valid = 0;
+        sem_post(&shared_state->mutex);
+    }
+    
+    // Restore signal mask
+    sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
+    // --- Create Transfer Request ---
+    // At this point, dest_user is online.
+    
+    // 1. Resolve Source Path (cwd/filename) - needed for later copy
+    char source_path[PATH_MAX];
+    snprintf(source_path, sizeof(source_path), "%s/%s", loggedCwd, filename); 
+
+    sem_wait(&shared_state->mutex);
+    
+    // Find dest_user PID again (it might have changed if they relogged, though we just passed blocking)
+    pid_t dest_pid = -1;
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(shared_state->logged_users[i].valid && strcmp(shared_state->logged_users[i].username, dest_user) == 0) {
+            dest_pid = shared_state->logged_users[i].pid;
+            break;
+        }
+    }
+    
+    if(dest_pid == -1) {
+         sem_post(&shared_state->mutex);
+         send_with_cwd(client_sock, "Error: User went offline unexpectedly.\n", loggedUser);
+         return;
+    }
+
+    // Allocate Request
+    int req_id = shared_state->request_counter++;
+    int req_idx = -1;
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(!shared_state->requests[i].valid) {
+            req_idx = i;
+            break; 
+        }
+    }
+
+    if(req_idx == -1) {
+        sem_post(&shared_state->mutex);
+        send_with_cwd(client_sock, "Server busy (too many active requests).\n", loggedUser);
+        return;
+    }
+
+    // Fill Request
+    shared_state->requests[req_idx].id = req_id;
+    strncpy(shared_state->requests[req_idx].sender, loggedUser, 64);
+    shared_state->requests[req_idx].sender_pid = getpid();
+    strncpy(shared_state->requests[req_idx].receiver, dest_user, 64);
+    shared_state->requests[req_idx].receiver_pid = dest_pid;
+    strncpy(shared_state->requests[req_idx].filename, source_path, PATH_MAX);
+    shared_state->requests[req_idx].valid = 1;
+
+    sem_post(&shared_state->mutex);
+
+    // Notify Receiver
+    // We use SIGRTMIN for "New Request"
+    kill(dest_pid, SIGRTMIN);
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), "Request ID %d sent to %s. Waiting for accept/reject...\n", req_id, dest_user);
+    send_with_cwd(client_sock, msg, loggedUser);
+    
+    // Note: The prompt says "Sender's client remains blocked". 
+    // If strict blocking is required until accept, we should sigsuspend again here.
+    // Based on "The two users notified" in reject, it implies async or blocking. 
+    // Usually "Waiting for response" means blocking. Let's block again.
+    
+    printf("DEBUG: Waiting for resolution of request %d...\n", req_id);
+    
+    // Reuse waitmask, but this time we wait for SIGRTMIN+1 (Accept) or SIGRTMIN+2 (Reject)
+    // Actually, we can just wait for SIGUSR2 (Resolution)
+    
+    sigset_t res_mask, old_res_mask;
+    sigemptyset(&res_mask);
+    sigaddset(&res_mask, SIGUSR2); 
+    sigprocmask(SIG_BLOCK, &res_mask, &old_res_mask);
+    
+    sigset_t suspend_mask = old_res_mask;
+    sigdelset(&suspend_mask, SIGUSR2);
+    
+    sigsuspend(&suspend_mask);
+    
+    sigprocmask(SIG_SETMASK, &old_res_mask, NULL);
+    
+    // When we wake up, check if request is gone or marked?
+    // Actually the signal handler or the waker should print the outcome?
+    // Or we just print "Resumed" and let the client loop handle the next prompt?
+    // The previous implementation sent a message.
+    
+    // For now, assume the signal handler prints the outcome or updates us? 
+    // Simplified: Just return. The signal handler (if we add one) or the other process might send a message to our socket? 
+    // No, other process can't write to our socket.
+    // So we must check status or just rely on the signal handler to send the message.
+    // Let's rely on Shared Memory to pass the result message? Or just generic "Request resolved".
+    
+    // We'll update the signal handler to do nothing but wake us.
+    send_with_cwd(client_sock, "Request resolved.\n", loggedUser);
+}
+
+
+/*This function is a the main function that handles the client,
+as we can see it has different behaviuors based on the message received  */
+void handle_reject(int client_sock, int req_id, char *loggedUser) {
+    if(!shared_state) return;
+    
+    // Block SIGRTMIN to prevent deadlock if handler tries to access something (though we removed lock in handler, it's safer)
+    sigset_t block_mask, old_mask;
+    sigemptyset(&block_mask);
+    sigaddset(&block_mask, SIGRTMIN);
+    sigprocmask(SIG_BLOCK, &block_mask, &old_mask);
+    
+    sem_wait(&shared_state->mutex);
+    int idx = -1;
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(shared_state->requests[i].valid && shared_state->requests[i].id == req_id) {
+             idx = i;
+             break;
+        }
+    }
+    
+    if(idx == -1) {
+        sem_post(&shared_state->mutex);
+        sigprocmask(SIG_SETMASK, &old_mask, NULL);
+        send_with_cwd(client_sock, "Request ID not found.\n", loggedUser);
+        return;
+    }
+    
+    // Check if I am the receiver
+    if(strcmp(shared_state->requests[idx].receiver, loggedUser) != 0) {
+        sem_post(&shared_state->mutex);
+        sigprocmask(SIG_SETMASK, &old_mask, NULL);
+        send_with_cwd(client_sock, "You are not the receiver of this request.\n", loggedUser);
+        return;
+    }
+    
+    // Notify Sender
+    // We assume sender is blocked on SIGUSR2
+    pid_t sender_pid = shared_state->requests[idx].sender_pid;
+    kill(sender_pid, SIGUSR2);
+    
+    // Remove Request
+    shared_state->requests[idx].valid = 0;
+    
+    sem_post(&shared_state->mutex);
+    sigprocmask(SIG_SETMASK, &old_mask, NULL);
+    
+    send_with_cwd(client_sock, "Request rejected.\n", loggedUser);
+}
+
+void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
+    if(!shared_state) return;
+    
+    // Block SIGRTMIN
+    sigset_t block_mask, old_mask;
+    sigemptyset(&block_mask);
+    sigaddset(&block_mask, SIGRTMIN);
+    sigprocmask(SIG_BLOCK, &block_mask, &old_mask);
+     
+    sem_wait(&shared_state->mutex);
+    int idx = -1;
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(shared_state->requests[i].valid && shared_state->requests[i].id == req_id) {
+             idx = i;
+             break;
+        }
+    }
+    
+    if(idx == -1) {
+        sem_post(&shared_state->mutex);
+        sigprocmask(SIG_SETMASK, &old_mask, NULL);
+        send_with_cwd(client_sock, "Request ID not found.\n", loggedUser);
+        return;
+    }
+    
+     // Check if I am the receiver
+    if(strcmp(shared_state->requests[idx].receiver, loggedUser) != 0) {
+        sem_post(&shared_state->mutex);
+        sigprocmask(SIG_SETMASK, &old_mask, NULL);
+        send_with_cwd(client_sock, "You are not the receiver of this request.\n", loggedUser);
+        return;
+    }
+    
+    // Perform Transfer
+    // 1. Resolve Dest Path
+    char dest_path[PATH_MAX];
+    char dest_dir_abs[PATH_MAX];
+    
+    // Resolve 'dir' relative to CWD
+    
+    // Copy request data
+    char filename[PATH_MAX];
+    strncpy(filename, shared_state->requests[idx].filename, PATH_MAX);
+    pid_t sender_pid = shared_state->requests[idx].sender_pid;
+    
+    sem_post(&shared_state->mutex);
+    sigprocmask(SIG_SETMASK, &old_mask, NULL); // Unblock signals during IO
+    
+    // RESOLVE PATHS
+    char cwd[PATH_MAX];
+    getcwd(cwd, sizeof(cwd));
+    build_abs_path(dest_dir_abs, cwd, dir);
+    
+    // Check if dir exists
+    struct stat st;
+    if(stat(dest_dir_abs, &st) == -1 || !S_ISDIR(st.st_mode)) {
+        send_with_cwd(client_sock, "Invalid directory.\n", loggedUser);
+        return;
+    }
+    
+    // Final path
+    snprintf(dest_path, sizeof(dest_path), "%s/%s", dest_dir_abs, basename(filename));
+    
+    // ELEVATE TO ROOT for reading source (owned by sender) and writing dest (owned by receiver)
+    if(seteuid(0) == -1) { perror("seteuid 0"); return; }
+    
+    FILE *src = fopen(filename, "rb");
+    if(!src) {
+        perror("fopen src");
+        send_with_cwd(client_sock, "Error source file (permission/existence).\n", loggedUser);
+        seteuid(original_uid);
+        return;
+    }
+    
+    FILE *dst = fopen(dest_path, "wb");
+    if(!dst) {
+        perror("fopen dst");
+        fclose(src);
+        send_with_cwd(client_sock, "Error dest file.\n", loggedUser);
+        seteuid(original_uid);
+        return;
+    }
+    
+    // COPY
+    char buf[4096];
+    size_t n;
+    while((n = fread(buf, 1, sizeof(buf), src)) > 0) fwrite(buf, 1, n, dst);
+    
+    fclose(src);
+    fclose(dst);
+    
+    // CHOWN to receiver
+    uid_t uid = get_uid_by_username(loggedUser);
+    gid_t gid = get_gid_by_username(loggedUser);
+    chown(dest_path, uid, gid);
+    chmod(dest_path, 0700);
+    
+    // RESTORE
+    seteuid(original_uid);
+    
+    // NOTIFY SENDER (Wake up)
+    kill(sender_pid, SIGUSR2);
+    
+    // REMOVE REQUEST (Need Lock again)
+    sigprocmask(SIG_BLOCK, &block_mask, NULL); // Re-block for cleanup
+    sem_wait(&shared_state->mutex);
+    // Verify it is still there (idx matches) - simplistic
+    if(shared_state->requests[idx].id == req_id) {
+        shared_state->requests[idx].valid = 0;
+    }
+    sem_post(&shared_state->mutex);
+    sigprocmask(SIG_SETMASK, &old_mask, NULL); // Unblock
+    
+    send_with_cwd(client_sock, "Transfer accepted and completed.\n", loggedUser);
+}
+
+
 /*This function is a the main function that handles the client,
 as we can see it has different behaviuors based on the message received  */
 void handle_client(int client_sock) {
+
+  // Set global for signal handler
+  current_client_sock = client_sock;
+
+  // Reset SIGCHLD to default so we can waitpid() on our own children (e.g. adduser)
+  signal(SIGCHLD, SIG_DFL);
 
   char buffer[BUFFER_SIZE];
   char cwd[PATH_MAX];
@@ -195,7 +602,17 @@ void handle_client(int client_sock) {
 
   
 
-  while ((n = read(client_sock, buffer, BUFFER_SIZE - 1)) > 0) {
+  while (1) {
+    n = read(client_sock, buffer, BUFFER_SIZE - 1);
+    
+    if (n < 0) {
+        if (errno == EINTR) continue; // Ignore signal interruptions
+        perror("read error");
+        break;
+    } 
+    if (n == 0) {
+        break; // Client disconnected
+    }
    
     buffer[n] = '\0'; /*Terminates the buffer, maybe we can consider this as a
     buffer overflow security measure ?
@@ -234,6 +651,31 @@ void handle_client(int client_sock) {
       if(tmp!=NULL){
         strncpy(loggedUser, tmp, sizeof(loggedUser)-1);
         loggedUser[sizeof(loggedUser)-1] = '\0';
+        
+        // Add to Shared Memory
+        if(shared_state) {
+            sem_wait(&shared_state->mutex);
+            for(int i=0; i<MAX_CLIENTS; i++) {
+                if(!shared_state->logged_users[i].valid) {
+                    strncpy(shared_state->logged_users[i].username, loggedUser, 64);
+                    shared_state->logged_users[i].pid = getpid(); // Store PID
+                    shared_state->logged_users[i].valid = 1;
+                    break;
+                }
+            }
+            
+            // Wake up waiting processes
+            for(int i=0; i<MAX_CLIENTS; i++) {
+                if(shared_state->waiters[i].valid && strcmp(shared_state->waiters[i].target_user, loggedUser) == 0) {
+                    printf("DEBUG: Waking up PID %d waiting for %s\n", shared_state->waiters[i].pid, loggedUser);
+                    kill(shared_state->waiters[i].pid, SIGUSR1);
+                }
+            }
+            sem_post(&shared_state->mutex);
+            
+            // Check for pending requests for me?
+            // (Optional: Could iterate requests and notify myself, but usually notification happens at creation time or poll)
+        }
       }
 
     } else if (strcmp("create_user", firstToken) == 0) {
@@ -733,11 +1175,54 @@ void handle_client(int client_sock) {
         }//end else logged user delete
        
         
+      }else if(strcmp(firstToken,"transfer_request")==0){
+          if(loggedUser[0]=='\0'){
+             send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+          } else {
+             // Expecting: transfer_request <file> <dest_user>
+             // secondToken = file, thirdToken = dest_user
+             if(secondToken == NULL) {
+                  send_with_cwd(client_sock, "Usage: transfer_request <file> <user>\n", loggedUser);
+             } else {
+                 // The prompt implies blocking if dest_user is not logged in.
+                 // We pass arguments.
+                 char *t_file = secondToken;
+                 char *t_user = thirdToken; 
+                 // If buffer parsing was loose, ensure we have thirdToken
+                 handle_transfer_request(client_sock, t_file, t_user);
+             }
+          }
+      }else if(strcmp(firstToken,"accept")==0){
+          if(loggedUser[0]=='\0'){
+             send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+          } else {
+              // accept <dir> <id>
+              if(!secondToken || !thirdToken) {
+                  send_with_cwd(client_sock, "Usage: accept <dir> <id>\n", loggedUser);
+              } else {
+                  handle_accept(client_sock, secondToken, atoi(thirdToken), loggedUser);
+              }
+          }
+      }else if(strcmp(firstToken,"reject")==0){
+          if(loggedUser[0]=='\0'){
+             send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
+          } else {
+              // reject <id>
+              if(!secondToken) {
+                  send_with_cwd(client_sock, "Usage: reject <id>\n", loggedUser);
+              } else {
+                  handle_reject(client_sock, atoi(secondToken), loggedUser);
+              }
+          }
       }else{
         send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
       }//end else chmod invalid command
   } // end while
 
+  // Cleanup user from shared memory before exiting
+  if(loggedUser[0] != '\0') {
+      remove_logged_user(loggedUser);
+  }
 
   close(client_sock);
   printf("Client disconnected\n"); // Debug
