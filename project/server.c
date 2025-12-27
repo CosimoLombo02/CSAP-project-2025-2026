@@ -57,17 +57,32 @@ void sigrtmin_handler(int signo) {
            shared_state->requests[i].receiver_pid == my_pid) {
                
             // Find filename manually to avoid non-async-safe basename()
-            char msg[512];
+            // Increase buffer size to handle CWD
+            char msg[1024];
             char *fname = shared_state->requests[i].filename;
             char *p = strrchr(fname, '/');
             if (p) fname = p + 1;
 
-            int len = snprintf(msg, sizeof(msg), "\n[!] Incoming Transfer Request (ID: %d) from %s for file %s\nAccept with: accept <dir> %d\nReject with: reject %d\n> ", 
+            char *display_cwd = loggedCwd;
+            // Mimic send_with_cwd: strip start_cwd if present
+            char *pos = strstr(loggedCwd, start_cwd);
+            if (pos == loggedCwd) { 
+                // Matches at start
+                display_cwd = loggedCwd + strlen(start_cwd);
+            }
+            
+            // If display_cwd is empty (root), make it "/"? 
+            // Or send_with_cwd behavior: if path is relative, it just prints it.
+            // If display_cwd is empty string, it prints " > " ?
+            // Let's assume valid relative path if not root.
+    
+            int len = snprintf(msg, sizeof(msg), "\n[!] Incoming Transfer Request (ID: %d) from %s for file %s\nAccept with: accept <dir> %d\nReject with: reject %d\n\n%s > ", 
                      shared_state->requests[i].id, 
                      shared_state->requests[i].sender, 
                      fname,
                      shared_state->requests[i].id,
-                     shared_state->requests[i].id);
+                     shared_state->requests[i].id,
+                     display_cwd);
             
             write(current_client_sock, msg, len);
         }

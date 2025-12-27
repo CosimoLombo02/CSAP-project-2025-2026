@@ -320,6 +320,7 @@ int main(int argc, char *argv[]) {
                          prompt_buf[n_prompt] = '\0';
                          update_prompt(prompt_buf);
                          printf("\n%s", prompt_buf);
+                         fflush(stdout);
                      }
                      continue;
                  }
@@ -336,6 +337,7 @@ int main(int argc, char *argv[]) {
                          resp_buf[n_resp] = '\0';
                          update_prompt(resp_buf);
                          printf("%s", resp_buf);
+                         fflush(stdout);
                      }
                      continue;
                 }
@@ -369,7 +371,8 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            printf("%s", buffer); // Debug
+            printf("%s", buffer); 
+            fflush(stdout);
 
             if (strstr(buffer, "Login successful!") != NULL && strlen(pending_user) > 0) {
                 strcpy(logged_user, pending_user);
