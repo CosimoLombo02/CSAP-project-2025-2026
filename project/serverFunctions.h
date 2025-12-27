@@ -37,6 +37,7 @@ typedef struct {
     pid_t receiver_pid;
     char filename[PATH_MAX]; // Absolute path
     int valid;
+    int status; // 0=Pending, 1=Accepted, 2=Rejected
 } TransferRequest;
 
 typedef struct {
@@ -248,16 +249,46 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
         return;
     }
 
+    // Check if source file exists FIRST
+    char source_path[PATH_MAX];
+    snprintf(source_path, sizeof(source_path), "%s/%s", loggedCwd, filename);
+
+    // We need to check if we can read it.
+    // Ideally use access() but we are running as root or original_uid?
+    // We are running as root (seteuid(0) was called in main? No, seteuid(original_uid)).
+    // So we need to seteuid(0) to check file owned by user?
+    // The server runs effectively as root eventually?
+    // Using `access` might check real UID/GID.
+    // Better: elevate to 0, check, restore.
+    
+    if(seteuid(0) == -1) perror("seteuid 0");
+    if(access(source_path, F_OK) == -1) {
+        if(seteuid(original_uid) == -1) perror("seteuid restore");
+        send_with_cwd(client_sock, "Source file does not exist!\n", loggedUser);
+        return;
+    }
+    if(seteuid(original_uid) == -1) perror("seteuid restore");
+
     // Check if dest_user home directory exists in the root directory
     char dest_user_path[PATH_MAX];
     snprintf(dest_user_path, sizeof(dest_user_path), "%s/%s", root_directory, dest_user);
 
-    /* 
+    printf("DEBUG: Checking if %s exists\n", dest_user_path);
+    
+    char cwd[PATH_MAX];
+    getcwd(cwd, sizeof(cwd));
+    build_abs_path(dest_user_path, original_cwd, dest_user);
+
+    //debug
+    
+    printf("DEBUG: Destination user path: %s\n", dest_user_path);
+
+
     if(check_directory(dest_user_path) == 0) {
         send_with_cwd(client_sock, "Destination user does not exist!\n", loggedUser);
         return;
     }
-        */
+    
 
     printf("DEBUG: Handling transfer_request for %s -> %s\n", filename, dest_user);
 
@@ -326,9 +357,10 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     // --- Create Transfer Request ---
     // At this point, dest_user is online.
     
-    // 1. Resolve Source Path (cwd/filename) - needed for later copy
-    char source_path[PATH_MAX];
-    snprintf(source_path, sizeof(source_path), "%s/%s", loggedCwd, filename); 
+    // 1. Resolve Source Path (cwd/filename) - already done at top
+    // char source_path[PATH_MAX];
+    // snprintf(source_path, sizeof(source_path), "%s/%s", loggedCwd, filename); 
+
 
     sem_wait(&shared_state->mutex);
     
@@ -402,21 +434,19 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     
     sigsuspend(&suspend_mask);
     
-    sigprocmask(SIG_SETMASK, &old_res_mask, NULL);
+    // When we wake up, check request status
+    sem_wait(&shared_state->mutex);
+    int status = shared_state->requests[req_idx].status;
+    shared_state->requests[req_idx].valid = 0; // Cleanup
+    sem_post(&shared_state->mutex);
     
-    // When we wake up, check if request is gone or marked?
-    // Actually the signal handler or the waker should print the outcome?
-    // Or we just print "Resumed" and let the client loop handle the next prompt?
-    // The previous implementation sent a message.
-    
-    // For now, assume the signal handler prints the outcome or updates us? 
-    // Simplified: Just return. The signal handler (if we add one) or the other process might send a message to our socket? 
-    // No, other process can't write to our socket.
-    // So we must check status or just rely on the signal handler to send the message.
-    // Let's rely on Shared Memory to pass the result message? Or just generic "Request resolved".
-    
-    // We'll update the signal handler to do nothing but wake us.
-    send_with_cwd(client_sock, "Request resolved.\n", loggedUser);
+    if(status == 1) {
+        send_with_cwd(client_sock, "Transfer accepted!\n", loggedUser);
+    } else if(status == 2) {
+        send_with_cwd(client_sock, "Transfer rejected!\n", loggedUser);
+    } else {
+        send_with_cwd(client_sock, "Request resolved (unknown status).\n", loggedUser);
+    }
 }
 
 
@@ -460,8 +490,8 @@ void handle_reject(int client_sock, int req_id, char *loggedUser) {
     pid_t sender_pid = shared_state->requests[idx].sender_pid;
     kill(sender_pid, SIGUSR2);
     
-    // Remove Request
-    shared_state->requests[idx].valid = 0;
+    // UPDATE REQUEST STATUS
+    shared_state->requests[idx].status = 2; // REJECTED
     
     sem_post(&shared_state->mutex);
     sigprocmask(SIG_SETMASK, &old_mask, NULL);
@@ -572,12 +602,12 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     // NOTIFY SENDER (Wake up)
     kill(sender_pid, SIGUSR2);
     
-    // REMOVE REQUEST (Need Lock again)
+    // UPDATE REQUEST STATUS
     sigprocmask(SIG_BLOCK, &block_mask, NULL); // Re-block for cleanup
     sem_wait(&shared_state->mutex);
     // Verify it is still there (idx matches) - simplistic
     if(shared_state->requests[idx].id == req_id) {
-        shared_state->requests[idx].valid = 0;
+        shared_state->requests[idx].status = 1; // ACCEPTED
     }
     sem_post(&shared_state->mutex);
     sigprocmask(SIG_SETMASK, &old_mask, NULL); // Unblock
