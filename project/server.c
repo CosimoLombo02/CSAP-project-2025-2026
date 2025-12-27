@@ -27,7 +27,40 @@ SharedState *shared_state = NULL;
 void sigusr1_handler(int signo) { }
 
 // Signal for SIGUSR2 (Wake up sender after resolution)
-void sigusr2_handler(int signo) { }
+// Signal for SIGUSR2 (Wake up sender after resolution)
+void sigusr2_handler(int signo) {
+    if(!shared_state || current_client_sock == -1) return;
+    
+    pid_t my_pid = getpid();
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        // Check for requests where I am the sender, valid is true, and status is set (1=Accepted, 2=Rejected)
+        // We access shared memory optimistically without locks (signal handler context)
+        if(shared_state->requests[i].valid && 
+           shared_state->requests[i].sender_pid == my_pid &&
+           shared_state->requests[i].status != 0) {
+           
+            int status = shared_state->requests[i].status;
+            
+            // Mark request as handled (cleanup)
+            // Invalidating it effectively removes it from the list
+            shared_state->requests[i].valid = 0;
+            
+            char msg[1024];
+            char *txt = (status == 1) ? "Transfer accepted!" : "Transfer rejected!";
+            
+            // Replicate CWD prompt logic for user convenience (as requested)
+            char *display_cwd = loggedCwd;
+            char *pos = strstr(loggedCwd, start_cwd);
+            if (pos == loggedCwd) { 
+                display_cwd = loggedCwd + strlen(start_cwd);
+            }
+
+            // Construct notification: Message + Newline + Newline + Prompt
+            int len = snprintf(msg, sizeof(msg), "\n%s\n\n%s > ", txt, display_cwd);
+            write(current_client_sock, msg, len);
+        }
+    }
+}
 
 // Signal for SIGRTMIN (Notify receiver of new request)
 /* NOTE: We can't access client_socket easily here to write() unless we make it global or passed in data.

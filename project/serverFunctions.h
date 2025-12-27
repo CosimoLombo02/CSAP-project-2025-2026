@@ -55,6 +55,7 @@ extern int current_client_sock;
 // Global variables
 extern uid_t original_uid;
 extern gid_t original_gid;
+extern char original_cwd[PATH_MAX]; 
 extern char root_directory[PATH_MAX];
 char loggedUser[64] = "";
 char loggedCwd[PATH_MAX] = "";
@@ -110,7 +111,12 @@ int create_system_user(char *username) {
 
 // login function
 
-char *login(char *username, int client_socket) {
+char *login(char *username, int client_socket, char *loggedUser) {
+
+  if (loggedUser[0] != '\0') {
+    send_with_cwd(client_socket, "You are already logged in!\n", loggedUser); // send the message to the client
+    return NULL;
+  } // end if
 
   // check if the username is null or made only by spaces
   if (username == NULL || strlen(username) == 0) {
@@ -199,8 +205,14 @@ void create_user(char *username, char *permissions, int client_sock) {
     return;
   } // end if
 
+  char abs_path[PATH_MAX];
+
+  build_abs_path(abs_path,original_cwd, username);
+
+  printf("DEBUG: abs_path: %s\n", abs_path); //debug
+
   // create the user's home directory
-  if (!create_directory(username, strtol(permissions, NULL, 8))) {
+  if (!create_directory(abs_path, strtol(permissions, NULL, 8))) {
 
     // if create_directory fails, we restore the original uid
     if (seteuid(original_uid) == -1) {
@@ -342,6 +354,15 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
         }
 
         printf("DEBUG: User %s not online. Waiting (PID %d)...\n", dest_user, getpid());
+
+        // Notify client that we are waiting (this unblocks the client READ, but server remains blocked in handle_client)
+        // The user will see the prompt but commands will hang until server wakes up.
+        char wait_msg[256];
+        snprintf(wait_msg, sizeof(wait_msg), "User %s not online. Waiting for connection...\n", dest_user);
+        // send_with_cwd(client_sock, wait_msg, loggedUser);
+        // USE write directly to avoid sending the prompt (CWD >), so the user knows we are waiting.
+        write(client_sock, wait_msg, strlen(wait_msg));
+
         sigsuspend(&waitmask); // Atomic release and wait
         printf("DEBUG: Woke up!\n");
         
@@ -357,9 +378,21 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     // --- Create Transfer Request ---
     // At this point, dest_user is online.
     
-    // 1. Resolve Source Path (cwd/filename) - already done at top
-    // char source_path[PATH_MAX];
-    // snprintf(source_path, sizeof(source_path), "%s/%s", loggedCwd, filename); 
+    // 1. Resolve Source Path (cwd/filename)
+    // Validate that source_path is within the user's sandbox
+    char resolved_source_path[PATH_MAX];
+    if (realpath(source_path, resolved_source_path) == NULL) {
+        send_with_cwd(client_sock, "Error resolving source file path.\n", loggedUser);
+        return;
+    }
+
+    if (strncmp(resolved_source_path, loggedCwd, strlen(loggedCwd)) != 0) {
+        send_with_cwd(client_sock, "Error: Source file must be within your home directory.\n", loggedUser);
+        return;
+    }
+    
+    // Update source_path to resolved absolute path
+    strncpy(source_path, resolved_source_path, PATH_MAX);
 
 
     sem_wait(&shared_state->mutex);
@@ -403,6 +436,7 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     shared_state->requests[req_idx].receiver_pid = dest_pid;
     strncpy(shared_state->requests[req_idx].filename, source_path, PATH_MAX);
     shared_state->requests[req_idx].valid = 1;
+    shared_state->requests[req_idx].status = 0; // Pending
 
     sem_post(&shared_state->mutex);
 
@@ -414,39 +448,13 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     snprintf(msg, sizeof(msg), "Request ID %d sent to %s. Waiting for accept/reject...\n", req_id, dest_user);
     send_with_cwd(client_sock, msg, loggedUser);
     
-    // Note: The prompt says "Sender's client remains blocked". 
-    // If strict blocking is required until accept, we should sigsuspend again here.
-    // Based on "The two users notified" in reject, it implies async or blocking. 
-    // Usually "Waiting for response" means blocking. Let's block again.
-    
-    printf("DEBUG: Waiting for resolution of request %d...\n", req_id);
-    
-    // Reuse waitmask, but this time we wait for SIGRTMIN+1 (Accept) or SIGRTMIN+2 (Reject)
-    // Actually, we can just wait for SIGUSR2 (Resolution)
-    
-    sigset_t res_mask, old_res_mask;
-    sigemptyset(&res_mask);
-    sigaddset(&res_mask, SIGUSR2); 
-    sigprocmask(SIG_BLOCK, &res_mask, &old_res_mask);
-    
-    sigset_t suspend_mask = old_res_mask;
-    sigdelset(&suspend_mask, SIGUSR2);
-    
-    sigsuspend(&suspend_mask);
-    
-    // When we wake up, check request status
-    sem_wait(&shared_state->mutex);
-    int status = shared_state->requests[req_idx].status;
-    shared_state->requests[req_idx].valid = 0; // Cleanup
-    sem_post(&shared_state->mutex);
-    
-    if(status == 1) {
-        send_with_cwd(client_sock, "Transfer accepted!\n", loggedUser);
-    } else if(status == 2) {
-        send_with_cwd(client_sock, "Transfer rejected!\n", loggedUser);
-    } else {
-        send_with_cwd(client_sock, "Request resolved (unknown status).\n", loggedUser);
-    }
+    // NON-BLOCKING for the Sender (as requested)
+    // We return immediately. 
+    // The Sender process will continue handling its client.
+    // When the Receiver eventually Accepts/Rejects, it will send SIGUSR2 to THIS process (Sender PID).
+    // The SIGUSR2 handler in server.c must handle the notification to the client.
+
+    return;
 }
 
 
@@ -675,7 +683,7 @@ void handle_client(int client_sock) {
 
     if (strcmp("login", firstToken) == 0) {
 
-      char *tmp = login(secondToken, client_sock);
+      char *tmp = login(secondToken, client_sock, loggedUser);
 
       // if the login is successful we store the username in the loggedUser variable
       if(tmp!=NULL){
