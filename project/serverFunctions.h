@@ -263,7 +263,16 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
 
     // Check if source file exists FIRST
     char source_path[PATH_MAX];
-    snprintf(source_path, sizeof(source_path), "%s/%s", loggedCwd, filename);
+
+    if (snprintf(source_path, sizeof(source_path),
+             "%s/%s", loggedCwd, filename)
+    >= sizeof(source_path)) {
+
+    send_with_cwd(client_sock,
+                  "Path too long\n",
+                  loggedUser);
+    return;
+}
 
     // We need to check if we can read it.
     // Ideally use access() but we are running as root or original_uid?
@@ -283,7 +292,16 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
 
     // Check if dest_user home directory exists in the root directory
     char dest_user_path[PATH_MAX];
-    snprintf(dest_user_path, sizeof(dest_user_path), "%s/%s", root_directory, dest_user);
+
+    if (snprintf(dest_user_path, sizeof(dest_user_path),
+             "%s/%s", root_directory, dest_user)
+    >= sizeof(dest_user_path)) {
+
+    send_with_cwd(client_sock,
+                  "Path too long\n",
+                  loggedUser);
+    return;
+}
 
     printf("DEBUG: Checking if %s exists\n", dest_user_path);
     
@@ -568,7 +586,15 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     }
     
     // Final path
-    snprintf(dest_path, sizeof(dest_path), "%s/%s", dest_dir_abs, basename(filename));
+    if (snprintf(dest_path, sizeof(dest_path),
+             "%s/%s", dest_dir_abs, basename(filename))
+    >= sizeof(dest_path)) {
+
+    send_with_cwd(client_sock,
+                  "Path too long\n",
+                  loggedUser);
+    return;
+}
     
     // ELEVATE TO ROOT for reading source (owned by sender) and writing dest (owned by receiver)
     if(seteuid(0) == -1) { perror("seteuid 0"); return; }
@@ -821,13 +847,37 @@ void handle_client(int client_sock) {
           if(secondToken==NULL || strlen(secondToken)==0){
             send_with_cwd(client_sock, "Insert path!\n", loggedUser);
           }else{
+
+            // up to root
+            if (seteuid(0) == -1) {
+              perror("seteuid(0) failed");
+              return;
+            } // end if seteuid
+
+            // impersonate loggedUser
+            if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+              perror("seteuid(user) failed");
+              return;
+            } // end if seteuid
+
             if(resolve_and_check_path(secondToken, loggedCwd, "cd")==1 && change_directory(secondToken)==1){
 
               send_with_cwd(client_sock, "Directory changed successfully!\n", loggedUser);
             }else{
               send_with_cwd(client_sock, "Error in the directory change!\n", loggedUser);
             }
-            
+
+            // up to root
+            if (seteuid(0) == -1) {
+              perror("seteuid(0) failed");
+              return;
+            } // end if seteuid
+
+            // restore the original uid
+            if (seteuid(original_uid) == -1) {
+              perror("Error restoring effective UID");
+              return;
+            } // end if seteuid            
           }//end else secondToken
 
         }//end else loggedUser cd
@@ -836,6 +886,19 @@ void handle_client(int client_sock) {
         send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
       }else{//here we have to implement the sandbox check
         char out[8192];
+
+        // up to root
+        if (seteuid(0) == -1) {
+          perror("seteuid(0) failed");
+          return;
+        } // end if seteuid
+
+        // impersonate loggedUser
+        if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+          perror("seteuid(user) failed");
+          return;
+        } // end if seteuid
+
           if(secondToken==NULL || strlen(secondToken)==0){
             
             list_directory_string(".", out, sizeof(out));
@@ -849,6 +912,17 @@ void handle_client(int client_sock) {
             }//end else directory listing
           }//end else secondToken
          
+          // up to root
+        if (seteuid(0) == -1) {
+          perror("seteuid(0) failed");
+          return;
+        } // end if seteuid
+
+        // restore original uid
+        if (seteuid(original_uid) == -1) {
+          perror("Error restoring effective UID");
+          return;
+        } // end if seteuid
           
         }//end else logged user list
 
@@ -1070,38 +1144,38 @@ void handle_client(int client_sock) {
             if(pathToken == NULL || strlen(pathToken) == 0){
                  send_with_cwd(client_sock, "Insert path!\n", loggedUser);
             } else {
-                if(resolve_and_check_path(pathToken, loggedCwd, "read")==1){
-                     // up to root
-                    if (seteuid(0) == -1) {
-                        perror("seteuid(0) failed");
-                        return;
-                    }
+            // up to root
+            if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+            }
+             // impersonate loggedUser
+            if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+                perror("seteuid(user) failed");
+                return;
+            }
 
-                    // impersonate loggedUser
-                    if (seteuid(get_uid_by_username(loggedUser)) == -1) {
-                        perror("seteuid(user) failed");
-                        return;
-                    }
+            if(resolve_and_check_path(pathToken, loggedCwd, "read")==1){
                     
                     char abs_path[PATH_MAX];
                     getcwd(cwd, sizeof(cwd));
                     build_abs_path(abs_path, cwd, pathToken);
                     
                     handle_read(client_sock, abs_path, loggedUser, offset);
-                    
-                     // up to root
-                    if (seteuid(0) == -1) {
-                        perror("seteuid(0) failed");
-                        return;
-                    }
-                    // restore original uid
-                    if (seteuid(original_uid) == -1) {
-                        perror("Error restoring effective UID");
-                        return;
-                    }
 
                 } else {
                     send_with_cwd(client_sock, "Error in the file read!\n", loggedUser);
+                }
+
+                // up to root
+                if (seteuid(0) == -1) {
+                    perror("seteuid(0) failed");
+                    return;
+                }
+                // restore original uid
+                if (seteuid(original_uid) == -1) {
+                    perror("Error restoring effective UID");
+                    return;
                 }
             }
         }
@@ -1124,18 +1198,18 @@ void handle_client(int client_sock) {
                  send_with_cwd(client_sock, "Insert path!\n", loggedUser);
             } else {
                 // Use "create" logic to validate parent directory (works for new and existing files)
-                 if(resolve_and_check_path(pathToken, loggedCwd, "create")==1){
-                     // up to root
-                    if (seteuid(0) == -1) {
-                        perror("seteuid(0) failed");
-                        return;
-                    }
+                // up to root
+                if (seteuid(0) == -1) {
+                    perror("seteuid(0) failed");
+                    return;
+                }
+                // impersonate loggedUser
+                if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+                    perror("seteuid(user) failed");
+                    return;
+                }
 
-                    // impersonate loggedUser
-                    if (seteuid(get_uid_by_username(loggedUser)) == -1) {
-                        perror("seteuid(user) failed");
-                        return;
-                    }
+                 if(resolve_and_check_path(pathToken, loggedCwd, "create")==1){
                     
                     char abs_path[PATH_MAX];
                     char cwd[PATH_MAX];
@@ -1144,19 +1218,19 @@ void handle_client(int client_sock) {
                     
                     handle_write(client_sock, abs_path, loggedUser, offset);
                     
-                     // up to root
-                    if (seteuid(0) == -1) {
-                        perror("seteuid(0) failed");
-                        return;
-                    }
-                    // restore original uid
-                    if (seteuid(original_uid) == -1) {
-                        perror("Error restoring effective UID");
-                        return;
-                    }
-
                 } else {
                     send_with_cwd(client_sock, "Error in the file write!\n", loggedUser);
+                }
+
+                 // up to root
+                if (seteuid(0) == -1) {
+                    perror("seteuid(0) failed");
+                    return;
+                }
+                // restore original uid
+                if (seteuid(original_uid) == -1) {
+                    perror("Error restoring effective UID");
+                    return;
                 }
             }
         }
@@ -1170,44 +1244,38 @@ void handle_client(int client_sock) {
           if(secondToken==NULL || strlen(secondToken)==0){
             send_with_cwd(client_sock, "Insert path!\n", loggedUser);
           }else{
-            if(resolve_and_check_path(secondToken, loggedCwd, "delete")==1){
-              
-              // up to root
-              if (seteuid(0) == -1) {
+            // up to root
+            if (seteuid(0) == -1) {
                 perror("seteuid(0) failed");
                 return;
-              }
-
-              // impersonate loggedUser
-              if (seteuid(get_uid_by_username(loggedUser)) == -1) {
+            }
+            // impersonate loggedUser
+            if (seteuid(get_uid_by_username(loggedUser)) == -1) {
                 perror("seteuid(user) failed");
                 return;
-              }
+            }
 
-              // under testing
-              //char abs_path[PATH_MAX];
-              //build_abs_path(abs_path, cwd, secondToken);
-
+            if(resolve_and_check_path(secondToken, loggedCwd, "delete")==1){
+              
               if(handle_delete(secondToken)==-1){
                 send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
               }else{
                 send_with_cwd(client_sock, "File deleted successfully!\n", loggedUser);
               }
 
-              // up to root
-              if (seteuid(0) == -1) {
-                perror("seteuid(0) failed");
-                return;
-              }
-
-              // restore original uid
-              if (seteuid(original_uid) == -1) {
-                perror("Error restoring effective UID");
-                return;
-              }
-
             }else{
               send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
+            }
+
+            // up to root
+            if (seteuid(0) == -1) {
+                perror("seteuid(0) failed");
+                return;
+            }
+            // restore original uid
+            if (seteuid(original_uid) == -1) {
+                perror("Error restoring effective UID");
+                return;
             }
           }//end else second token delete
         }//end else logged user delete
