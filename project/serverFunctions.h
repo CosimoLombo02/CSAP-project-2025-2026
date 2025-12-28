@@ -124,30 +124,43 @@ char *login(char *username, int client_socket, char *loggedUser) {
     return NULL;
   } // end if
 
-
   // up to root
-  // if (seteuid(0) == -1) {
-  //   perror("seteuid(0) failed");
-  //   return NULL;
-  // } // end if
+    if (seteuid(0) == -1) {
+      perror("seteuid(0) failed");
+      return NULL;
+    } // end if
 
   if (check_directory(username) == 1) {
+
+    // impersonate the user
+    if (seteuid(get_uid_by_username(username)) == -1) {
+      perror("seteuid failed");
+      return NULL;
+    } // end if
+
     change_directory(username);
+
+    // up to root
+    if (seteuid(0) == -1) {
+      perror("seteuid(0) failed");
+      return NULL;
+    } // end if
+
+    // back to non-root
+    if (seteuid(original_uid) == -1) {
+      perror("seteuid(original_uid) failed");
+      return NULL;
+    } // end if
+
     send_with_cwd(client_socket, "Login successful!\n", username); // send the message to the client
 
     strncpy(loggedCwd, getcwd(NULL, 0), sizeof(loggedCwd)-1);
     loggedCwd[sizeof(loggedCwd)-1] = '\0';
 
-    // back to non-root
-    // if (seteuid(original_uid) == -1) {
-    //   perror("seteuid(original_uid) failed");
-    //   return NULL;
-
-    // } // end if
-
     return username;
 
   } else {
+
     send_with_cwd(client_socket, "Login failed!\n", loggedUser); // send the message to the client
 
     // back to non-root
@@ -684,6 +697,8 @@ void handle_client(int client_sock) {
     printf("Client: %s",
            buffer); // print the message received from the client, server side
     // write(client_sock, buffer, n); //send the message to the client
+
+    printf("DEBUG start-while euid: %d\n", geteuid()); // debug
 
     // test
     char *firstToken = strtok(buffer, " "); // first token is the command
@@ -1323,6 +1338,8 @@ void handle_client(int client_sock) {
       }else{
         send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
       }//end else chmod invalid command
+
+      printf("DEBUG euid end-while: %d\n", geteuid()); // debug
   } // end while
 
   // Cleanup user from shared memory before exiting

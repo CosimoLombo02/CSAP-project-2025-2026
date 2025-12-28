@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
     original_uid = getuid();
     original_gid = getgid();
     printf("Running without sudo!\n");
-    // exit(1);
+    exit(1);
   }
 
   // default values
