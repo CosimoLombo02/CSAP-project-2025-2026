@@ -184,7 +184,7 @@ int client_write(int client_socket) {
         return -1;
     }
 
-    printf("Enter text. Press Ctrl+D to finish.\n");
+    printf("Enter text. Press ENTER and after press Ctrl+D to finish.\n");
 
     // Read from stdin and write to temp file
     char buf[BUFFER_SIZE];
