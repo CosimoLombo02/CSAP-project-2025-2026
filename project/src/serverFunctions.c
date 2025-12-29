@@ -23,6 +23,64 @@
 char loggedUser[64] = "";
 char loggedCwd[PATH_MAX] = "";
 
+// Lock Tracking
+typedef struct {
+    int req_id;
+    int fd;
+} TransferLock;
+static TransferLock held_locks[MAX_CLIENTS];
+
+// Initialize locks
+static void init_locks() {
+    static int initialized = 0;
+    if(!initialized) {
+        for(int i=0; i<MAX_CLIENTS; i++) held_locks[i].fd = -1;
+        initialized = 1;
+    }
+}
+
+static void track_transfer_lock(int req_id, int fd) {
+    init_locks();
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(held_locks[i].fd == -1) {
+            held_locks[i].req_id = req_id;
+            held_locks[i].fd = fd;
+            return;
+        }
+    }
+}
+
+void release_transfer_lock(int req_id) {
+    init_locks();
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(held_locks[i].fd != -1 && held_locks[i].req_id == req_id) {
+            unlock_fd(held_locks[i].fd);
+            close(held_locks[i].fd);
+            held_locks[i].fd = -1;
+            return;
+        }
+    }
+}
+
+// Check if file is locked by a pending transfer
+static int is_file_locked_by_transfer(char *path) {
+    struct stat target_st;
+    if(stat(path, &target_st) < 0) return 0;
+
+    init_locks();
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(held_locks[i].fd != -1) {
+            struct stat lock_st;
+            if(fstat(held_locks[i].fd, &lock_st) == 0) {
+                if(target_st.st_dev == lock_st.st_dev && target_st.st_ino == lock_st.st_ino) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 int create_system_user(char *username) {
 
   // char *group = get_group();
@@ -458,6 +516,36 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     strncpy(shared_state->requests[req_idx].filename, source_path, PATH_MAX);
     shared_state->requests[req_idx].valid = 1;
     shared_state->requests[req_idx].status = 0; // Pending
+
+    // Lock the file (Shared) and Track
+    
+    // Elevate for opening/locking
+    if(seteuid(0) == -1) perror("seteuid 0");
+    if(seteuid(get_uid_by_username(loggedUser)) == -1) perror("seteuid user");
+    
+    int fd = open(source_path, O_RDONLY);
+    
+    // Restore
+    if(seteuid(0) == -1) perror("seteuid 0");
+    if(seteuid(original_uid) == -1) perror("seteuid orig");
+
+    if(fd >= 0) {
+        if(lock_shared_fd(fd) < 0) {
+            close(fd);
+            send_with_cwd(client_sock, "Error locking file.\n", loggedUser);
+            sem_wait(&shared_state->mutex);
+            shared_state->requests[req_idx].valid = 0;
+            sem_post(&shared_state->mutex);
+            return;
+        }
+        track_transfer_lock(req_id, fd);
+    } else {
+        send_with_cwd(client_sock, "Error accessing file for locking.\n", loggedUser);
+        sem_wait(&shared_state->mutex);
+        shared_state->requests[req_idx].valid = 0;
+        sem_post(&shared_state->mutex);
+        return;
+    }
 
     sem_post(&shared_state->mutex);
 
@@ -1089,11 +1177,14 @@ void handle_client(int client_sock) {
                   build_abs_path(old_abs, cwd, secondToken);
                   build_abs_path(new_abs, cwd, thirdToken);
 
-
-                  if(handle_mv(old_abs, new_abs)==-1){
-                    send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
-                  }else{
-                    send_with_cwd(client_sock, "File moved successfully!\n", loggedUser);
+                  if(is_file_locked_by_transfer(old_abs)) {
+                      send_with_cwd(client_sock, "Source file is locked by pending transfer!\n", loggedUser);
+                  } else {
+                      if(handle_mv(old_abs, new_abs)==-1){
+                        send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
+                      }else{
+                        send_with_cwd(client_sock, "File moved successfully!\n", loggedUser);
+                      }
                   }
                } else {
                    send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
@@ -1193,8 +1284,13 @@ void handle_client(int client_sock) {
                     char cwd[PATH_MAX];
                     getcwd(cwd, sizeof(cwd));
                     build_abs_path(abs_path, cwd, pathToken);
-                    
-                    handle_write(client_sock, abs_path, loggedUser, offset);
+                      
+                    // Check locks before write
+                    if(is_file_locked_by_transfer(abs_path)) {
+                        send_with_cwd(client_sock, "File is locked by pending transfer!\n", loggedUser);
+                    } else {
+                        handle_write(client_sock, abs_path, loggedUser, offset);
+                    }
                     
                 } else {
                     send_with_cwd(client_sock, "Error in the file write!\n", loggedUser);
@@ -1235,10 +1331,23 @@ void handle_client(int client_sock) {
 
             if(resolve_and_check_path(secondToken, loggedCwd, "delete")==1){
               
-              if(handle_delete(secondToken)==-1){
-                send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
-              }else{
-                send_with_cwd(client_sock, "File deleted successfully!\n", loggedUser);
+              // Check locks
+              char abs_path[PATH_MAX];
+              // resolve_and_check_path verifies existence but doesn't give us the absolute path easily
+              // We can construct it since we are in loggedCwd (or resolve it again)
+              // Actually resolve_and_check_path operates on arg.
+              // Let's resolve properly to check lock
+              getcwd(cwd, sizeof(cwd));
+              build_abs_path(abs_path, cwd, secondToken);
+              
+              if(is_file_locked_by_transfer(abs_path)) {
+                   send_with_cwd(client_sock, "File is locked by pending transfer!\n", loggedUser);
+              } else {
+                  if(handle_delete(secondToken)==-1){
+                    send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
+                  }else{
+                    send_with_cwd(client_sock, "File deleted successfully!\n", loggedUser);
+                  }
               }
 
             }else{

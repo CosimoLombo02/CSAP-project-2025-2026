@@ -76,5 +76,6 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser);
 void handle_client(int client_sock);
 void sigchld_handler(int s);
 int handle_exit(char *buffer);
+void release_transfer_lock(int req_id);
 
 #endif // SERVERFUNCTIONS_H

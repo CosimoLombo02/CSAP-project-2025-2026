@@ -41,6 +41,9 @@ void sigusr2_handler(int signo) {
            
             int status = shared_state->requests[i].status;
             
+            // Release the lock locally
+            release_transfer_lock(shared_state->requests[i].id);
+
             // Mark request as handled (cleanup)
             // Invalidating it effectively removes it from the list
             shared_state->requests[i].valid = 0;
