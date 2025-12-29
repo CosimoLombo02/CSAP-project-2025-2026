@@ -302,11 +302,14 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     
     printf("DEBUG: Destination user path: %s\n", dest_user_path);
 
-
+    // up to root
+    if(seteuid(0) == -1) perror("seteuid 0");
     if(check_directory(dest_user_path) == 0) {
         send_with_cwd(client_sock, "Destination user does not exist!\n", loggedUser);
+        if(seteuid(original_uid) == -1) perror("seteuid restore");
         return;
     }
+    if(seteuid(original_uid) == -1) perror("seteuid restore");
     
 
     printf("DEBUG: Handling transfer_request for %s -> %s\n", filename, dest_user);
@@ -388,10 +391,21 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     // 1. Resolve Source Path (cwd/filename)
     // Validate that source_path is within the user's sandbox
     char resolved_source_path[PATH_MAX];
+  
+    // Impersonate user for realpath
+    if (seteuid(0) == -1) { perror("seteuid 0"); return; }
+    if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid user"); return; }
+
     if (realpath(source_path, resolved_source_path) == NULL) {
+        perror("realpath");
         send_with_cwd(client_sock, "Error resolving source file path.\n", loggedUser);
+        seteuid(0); seteuid(original_uid); // Restore
         return;
     }
+    
+    // Restore
+    if (seteuid(0) == -1) { perror("seteuid 0"); return; }
+    if (seteuid(original_uid) == -1) { perror("seteuid orig"); return; }
 
     if (strncmp(resolved_source_path, loggedCwd, strlen(loggedCwd)) != 0) {
         send_with_cwd(client_sock, "Error: Source file must be within your home directory.\n", loggedUser);
@@ -511,7 +525,9 @@ void handle_reject(int client_sock, int req_id, char *loggedUser) {
     sem_post(&shared_state->mutex);
     sigprocmask(SIG_SETMASK, &old_mask, NULL);
     
-    send_with_cwd(client_sock, "Request rejected.\n", loggedUser);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Transfer %d rejected.\n", req_id);
+    send_with_cwd(client_sock, msg, loggedUser);
 }
 
 void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
@@ -569,10 +585,21 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     
     // Check if dir exists
     struct stat st;
+    if(seteuid(0) == -1) perror("seteuid 0");
+    if(seteuid(get_uid_by_username(loggedUser)) == -1) perror("seteuid user");
     if(stat(dest_dir_abs, &st) == -1 || !S_ISDIR(st.st_mode)) {
         send_with_cwd(client_sock, "Invalid directory.\n", loggedUser);
+
+        // up to root
+        if(seteuid(0) == -1) perror("seteuid 0");
+        if(seteuid(original_uid) == -1) perror("seteuid orig");
+
         return;
     }
+
+    // up to root
+    if(seteuid(0) == -1) perror("seteuid 0");
+    if(seteuid(original_uid) == -1) perror("seteuid orig");
     
     // Final path
     if (snprintf(dest_path, sizeof(dest_path),
@@ -635,7 +662,9 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     sem_post(&shared_state->mutex);
     sigprocmask(SIG_SETMASK, &old_mask, NULL); // Unblock
     
-    send_with_cwd(client_sock, "Transfer accepted and completed.\n", loggedUser);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Transfer %d accepted and completed.\n", req_id);
+    send_with_cwd(client_sock, msg, loggedUser);
 }
 
 

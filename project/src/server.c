@@ -46,7 +46,7 @@ void sigusr2_handler(int signo) {
             shared_state->requests[i].valid = 0;
             
             char msg[1024];
-            char *txt = (status == 1) ? "Transfer accepted!" : "Transfer rejected!";
+            char *txt = (status == 1) ? "accepted" : "rejected";
             
             // Replicate CWD prompt logic for user convenience (as requested)
             char *display_cwd = loggedCwd;
@@ -56,7 +56,7 @@ void sigusr2_handler(int signo) {
             }
 
             // Construct notification: Message + Newline + Newline + Prompt
-            int len = snprintf(msg, sizeof(msg), "\n%s\n\n%s > ", txt, display_cwd);
+            int len = snprintf(msg, sizeof(msg), "\nTransfer %d %s!\n\n%s > ", shared_state->requests[i].id, txt, display_cwd);
             write(current_client_sock, msg, len);
         }
     }
