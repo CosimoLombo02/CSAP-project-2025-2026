@@ -1,15 +1,26 @@
 // Cosimo Lombardi 2031075 CSAP project 2025/2026
 // Simone Di Gregorio 2259275 CSAP project 2025/2026
 
-#include <dirent.h>
-#include <grp.h>
-#include <pwd.h>
-#include <libgen.h>
+// AUTO-REFACTORED implementation from utils.h
+#include "utils.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <libgen.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <signal.h>
 
 
-// global variables
-extern char original_cwd[PATH_MAX];
 
 // this functions checks if the permissions are valid
 // 0 not valid , 1 valid
@@ -40,7 +51,7 @@ int check_directory(char *path) {
 // this function checks if the username exists
 // 0 not exists, 1 exists
 int check_username(char *username) {
-  char path[512]; // buffer sufficientemente grande
+  char path[512];
 
   // copies "./" in the path
   strcpy(path, "./");

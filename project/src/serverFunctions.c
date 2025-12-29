@@ -1,66 +1,28 @@
 // Cosimo Lombardi 2031075 CSAP project 2025/2026
 // Simone Di Gregorio 2259275 CSAP project 2025/2026
 
-#define BUFFER_SIZE 1024 // buffer size for the messages
-
-#include <sys/types.h>
-#include <sys/wait.h>
+// AUTO-REFACTORED implementation from serverFunctions.h
+#include "serverFunctions.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stddef.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <dirent.h>
 #include <libgen.h>
-#include "fileSystem.h"
-#include "utils.h"
-#include <semaphore.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <signal.h>
-#include <sys/mman.h>
 
-#define MAX_CLIENTS 50
-
-// Structure to track waiting processes
-typedef struct {
-    pid_t pid;
-    char target_user[64];
-    int valid; // 1 = waiting, 0 = empty
-} WaitingProcess;
-
-// Shared Memory Structure
-typedef struct {
-    char username[64];
-    pid_t pid; // Process ID handling this user
-    int valid; // 0 = empty, 1 = occupied
-} LoggedUser;
-
-typedef struct {
-    int id;
-    char sender[64];
-    pid_t sender_pid;
-    char receiver[64];
-    pid_t receiver_pid;
-    char filename[PATH_MAX]; // Absolute path
-    int valid;
-    int status; // 0=Pending, 1=Accepted, 2=Rejected
-} TransferRequest;
-
-typedef struct {
-    LoggedUser logged_users[MAX_CLIENTS];
-    WaitingProcess waiters[MAX_CLIENTS];
-    TransferRequest requests[MAX_CLIENTS];
-    int request_counter;
-    sem_t mutex; // Semaphore for mutual exclusion
-} SharedState;
-
-// Global pointer to shared memory (must be initialized in main/server.c)
-extern SharedState *shared_state;
-extern int current_client_sock;
-
-// Global variables
-extern uid_t original_uid;
-extern gid_t original_gid;
-extern char original_cwd[PATH_MAX]; 
-extern char root_directory[PATH_MAX];
 char loggedUser[64] = "";
 char loggedCwd[PATH_MAX] = "";
 
-// create a real user in the system
 int create_system_user(char *username) {
 
   // char *group = get_group();
@@ -236,8 +198,22 @@ void create_user(char *username, char *permissions, int client_sock) {
     return;
   } // end if
 
-  chown(username, get_uid_by_username(username),
-        original_gid); // changes the owner and group of the directory
+  // changes the owner and group of the directory
+  if (chown(abs_path, get_uid_by_username(username),original_gid) == -1) { 
+    perror("chown failed");
+
+    send_with_cwd(client_sock, "Error in the user creation!\n", loggedUser); // send the message to the client
+    
+
+
+    if (seteuid(original_uid) == -1) {
+    perror("Error restoring effective UID");
+    return;
+  } // end if
+
+
+    return;
+  } // end if
 
   if (seteuid(original_uid) == -1) {
     perror("Error restoring effective UID");
@@ -279,7 +255,7 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
 
     if (snprintf(source_path, sizeof(source_path),
              "%s/%s", loggedCwd, filename)
-    >= sizeof(source_path)) {
+    >= (int)sizeof(source_path)) {
 
     send_with_cwd(client_sock,
                   "Path too long\n",
@@ -308,7 +284,7 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
 
     if (snprintf(dest_user_path, sizeof(dest_user_path),
              "%s/%s", root_directory, dest_user)
-    >= sizeof(dest_user_path)) {
+    >= (int)sizeof(dest_user_path)) {
 
     send_with_cwd(client_sock,
                   "Path too long\n",
@@ -601,7 +577,7 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     // Final path
     if (snprintf(dest_path, sizeof(dest_path),
              "%s/%s", dest_dir_abs, basename(filename))
-    >= sizeof(dest_path)) {
+    >= (int)sizeof(dest_path)) {
 
     send_with_cwd(client_sock,
                   "Path too long\n",
@@ -952,24 +928,27 @@ void handle_client(int client_sock) {
             send_with_cwd(client_sock, "Insert server path!\n", loggedUser);
           }else{
             if(fourthToken==NULL || strlen(fourthToken)==0){
-              if(resolve_and_check_path(thirdToken, loggedCwd, "upload")==1){
+              
+              // Impersonate user for path resolution
+              if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
+              if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid(user)"); return; }
 
-              
-               // up to root
-              if (seteuid(0) == -1) {
-                perror("seteuid(0) failed");
-                return;
-              } // end if seteuid
+              int path_valid = resolve_and_check_path(thirdToken, loggedCwd, "upload");
+
+              // Back to root for handle_upload (it needs to chown)
+              if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
+
+              if(path_valid == 1){
                handle_upload(client_sock, thirdToken, secondToken, loggedUser, get_uid_by_username(loggedUser), get_gid_by_username(loggedUser));
-               // back to non-root
-              if (seteuid(original_uid) == -1) {
-                perror("seteuid(original_uid) failed");
-                return;
-              } // end if seteuid
-              
               }else{
                 send_with_cwd(client_sock, "Error in the file upload!\n", loggedUser);
               }
+              
+              // Back to original_uid
+              if (seteuid(original_uid) == -1) {
+                perror("seteuid(original_uid) failed");
+                return;
+              } 
               
             }//end if non existence of fouth token
             //for the background upload, the client makes a new fork and in the
@@ -989,36 +968,25 @@ void handle_client(int client_sock) {
               if(thirdToken==NULL || strlen(thirdToken)==0){
                 send_with_cwd(client_sock, "Insert local path!\n", loggedUser);
               }else{
-                if(resolve_and_check_path(secondToken, loggedCwd, "download")==1){
+                
+                // Impersonate user for path resolution
+                if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
+                if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid(user)"); return; }
 
-                  // up to root
-              if (seteuid(0) == -1) {
-                perror("seteuid(0) failed");
-                return;
-              } // end if seteuid
+                int path_valid = resolve_and_check_path(secondToken, loggedCwd, "download");
 
-              // set the uid of the user
-              if (seteuid(get_uid_by_username(loggedUser)) == -1) {
-                perror("seteuid(user) failed");
-                return;
-              } // end if seteuid
-
-              handle_download(client_sock, secondToken, loggedUser);
-
-              // up to root
-              if (seteuid(0) == -1) {
-                perror("seteuid(0) failed");
-                return;
-              } // end if seteuid
-
-              // restore the original uid
-              if (seteuid(original_uid) == -1) {
-                perror("Error restoring effective UID");
-                return;
-                    } // end if seteuid
+                // Check succeeded as user?
+                if(path_valid == 1){
+                  // We are already USER here.
+                  handle_download(client_sock, secondToken, loggedUser);
                 }else{
                     send_with_cwd(client_sock, "Error in the file download!\n", loggedUser);
-                }//end else resolve_and_check_path
+                }
+
+                // Restore
+                if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
+                if (seteuid(original_uid) == -1) { perror("seteuid(orig)"); return; }
+
             }//end else second token
           }//end else third token
         }//end else loggedUser download
@@ -1033,50 +1001,33 @@ void handle_client(int client_sock) {
           if(thirdToken==NULL || strlen(thirdToken)==0){
             send_with_cwd(client_sock, "Insert permissions!\n", loggedUser);
           }else{
-            if(resolve_and_check_path(secondToken, loggedCwd, "chmod")==1){
+            
+            // Impersonate
+            if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
+            if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid(user)"); return; }
+
+            int path_valid = resolve_and_check_path(secondToken, loggedCwd, "chmod");
+
+            if(path_valid == 1){
               if(check_permissions(thirdToken)==0){
                   send_with_cwd(client_sock, "Invalid permissions!\n", loggedUser);
-                
               }else{
-                //if i am here i can change the permissions
-
-                
-               // up to root
-              if (seteuid(0) == -1) {
-                perror("seteuid(0) failed");
-                return;
-              }
-
-              //set to loggedUser
-              if (seteuid(get_uid_by_username(loggedUser)) == -1) {
-                perror("seteuid(get_uid_by_username(loggedUser)) failed");
-                return;
-              }
-
+                // handle_chmod calls open(O_RDONLY) then fchmod. 
+                // User owns file, so can fchmod.
                 if(handle_chmod(secondToken, thirdToken)==-1){
                   send_with_cwd(client_sock, "Error in the file chmod!\n", loggedUser);
                 }else{
                   send_with_cwd(client_sock, "File chmod successfully!\n", loggedUser);
                 }
-                
-                // up to root
-              if (seteuid(0) == -1) {
-                perror("seteuid(0) failed");
-                return;
               }
-              
-
-              //back to non-root
-              if (seteuid(original_uid) == -1) {
-                perror("seteuid(original_uid) failed");
-                return;
-              }
-                
-              
-              }//end else checkpermissions
             }else{
               send_with_cwd(client_sock, "Error in the file chmod!\n", loggedUser);
-            }//end else resolve_and_check_path
+            }
+            
+            // Restore
+            if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
+            if (seteuid(original_uid) == -1) { perror("seteuid(orig)"); return; }
+
           }//end else third token
         }//end else second token
       }//end else loggedUser chmod 
@@ -1088,24 +1039,18 @@ void handle_client(int client_sock) {
           if(secondToken==NULL || strlen(secondToken)==0){
             send_with_cwd(client_sock, "Insert old path!", loggedUser);
           }else{
-            if(thirdToken==NULL || strlen(thirdToken)==0){
+           if(thirdToken==NULL || strlen(thirdToken)==0){
               send_with_cwd(client_sock, "Insert new path!", loggedUser);
             }else{
-              if(resolve_and_check_path(secondToken, loggedCwd, "move")==1){
-                if(resolve_and_check_path(thirdToken, loggedCwd, "move")==1){
-                  
-                  // up to root
-                  if (seteuid(0) == -1) {
-                    perror("seteuid(0) failed");
-                    return;
-                  }
+              
+               // Impersonate
+               if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
+               if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid(user)"); return; }
 
-                  // impersonate loggedUser
-                  if (seteuid(get_uid_by_username(loggedUser)) == -1) {
-                    perror("seteuid(user) failed");
-                    return;
-                  }
-
+               int p1 = resolve_and_check_path(secondToken, loggedCwd, "move");
+               int p2 = resolve_and_check_path(thirdToken, loggedCwd, "move");
+               
+               if(p1 == 1 && p2 == 1) {
                   char old_abs[PATH_MAX];
                   char new_abs[PATH_MAX];
                   
@@ -1121,25 +1066,14 @@ void handle_client(int client_sock) {
                   }else{
                     send_with_cwd(client_sock, "File moved successfully!\n", loggedUser);
                   }
-
-                  // up to root
-                  if (seteuid(0) == -1) {
-                    perror("seteuid(0) failed");
-                    return;
-                  }
-
-                  // restore original uid
-                  if (seteuid(original_uid) == -1) {
-                    perror("Error restoring effective UID");
-                    return;
-                  }
-
-                }else{
-                  send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
-                }
-              }else{
-                send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
-              }
+               } else {
+                   send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
+               }
+               
+               // Restore
+               if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
+               if (seteuid(original_uid) == -1) { perror("seteuid(orig)"); return; }
+               
             }//end else third token mv 
           }//end else second token mv 
         }//end else logged user mv

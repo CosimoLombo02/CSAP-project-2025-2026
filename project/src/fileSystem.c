@@ -1,19 +1,25 @@
 // Cosimo Lombardi 2031075 CSAP project 2025/2026
 // Simone Di Gregorio 2259275 CSAP project 2025/2026
 
-#include <dirent.h>
-#include <errno.h>
+// AUTO-REFACTORED implementation from fileSystem.h
+#include "fileSystem.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <unistd.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <fcntl.h>
-#include <time.h>
-#include <pwd.h> 
-#include <grp.h> 
-#include <sys/file.h> 
+#include <dirent.h>
+#include <libgen.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <signal.h>
 
-extern char start_cwd[PATH_MAX];
 
 // lock the file with shared lock
 int lock_shared_fd(int fd) {
@@ -240,7 +246,7 @@ void file_info_string(const char *fullpath, char *out, size_t out_size) {
     }
     
     // adds a newline and null terminator
-    if (written < out_size) {
+    if (written >= 0 && (size_t)written < out_size) {
         out[written] = '\n';
         out[written + 1] = '\0';
     } else if (out_size > 0) {
@@ -340,6 +346,12 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
     return;
   }
 
+  uint32_t net_mode;
+  if (recv(client_sock, &net_mode, sizeof(net_mode), MSG_WAITALL) != sizeof(net_mode)) {
+    return;
+  }
+  mode_t file_mode = (mode_t)ntohl(net_mode);
+
   // opens the file in write mode
   FILE *fd = fopen(final_path, "wb");
   if (!fd) {
@@ -380,6 +392,13 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
   if (chown(final_path, uid, gid) == -1) {
     send_with_cwd(client_sock, "Error changing file owner\n", loggedUser);
     return;
+  }
+
+  // Apply permissions
+  // Mask with 07777 to keep permission bits and sticky/setuid/setgid if transmitted
+  if (chmod(final_path, file_mode & 07777) == -1) {
+      perror("chmod upload");
+      // Not fatal, but good to log
   }
 
   send_with_cwd(client_sock, "OK\n", loggedUser);

@@ -17,8 +17,6 @@
 char original_cwd[PATH_MAX];
 
 
-
-
 int main(int argc, char *argv[]) {
 
   // default values
@@ -357,6 +355,7 @@ int main(int argc, char *argv[]) {
                              prompt_buf[n] = '\0';
                              update_prompt(prompt_buf);
                              printf("%s", prompt_buf);
+                             fflush(stdout);
                          }
                     } else {
                         send(sock, "ERR\n", 4, 0);
@@ -365,6 +364,7 @@ int main(int argc, char *argv[]) {
                             buffer[n] = '\0';
                             update_prompt(buffer);
                             printf("%s", buffer);
+                            fflush(stdout);
                         }
                     }
                     continue; // Skip the standard printf and parsing below
@@ -394,6 +394,7 @@ int main(int argc, char *argv[]) {
                     if (read(sock, response, sizeof(response) - 1) > 0) {
                         update_prompt(response);
                         printf("%s", response);
+                        fflush(stdout);
                     }//end nested if
             
                    }//end client upload check
@@ -416,6 +417,7 @@ int main(int argc, char *argv[]) {
                     } // end else
                     buffer[n] = '\0';     // string terminator
                     printf("%s", buffer); // Debug
+                    fflush(stdout);
                 
                 }//end else access
             }//end if secondToken

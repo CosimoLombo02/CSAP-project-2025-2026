@@ -1,14 +1,19 @@
 #!/bin/bash
 
+clear 
 
-clear
+set -e
 
-# Rimuovo i vecchi eseguibili
-rm -f client
-rm -f server
+rm -f client server
 
-# Compilo i nuovi
-gcc client.c -o client
-gcc server.c -o server
+# CLIENT
+gcc -Wextra -Iinclude \
+  src/client.c src/clientFunctions.c src/uploadDownloadClient.c src/utils.c \
+  -o client
 
-echo "Compilazione completata!"
+# SERVER
+gcc -Wextra -Iinclude \
+  src/server.c src/serverFunctions.c src/utils.c src/fileSystem.c \
+  -o server
+
+echo "Build completed successfully"

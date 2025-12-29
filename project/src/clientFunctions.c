@@ -1,13 +1,24 @@
 // Cosimo Lombardi 2031075 CSAP project 2025/2026
 // Simone Di Gregorio 2259275 CSAP project 2025/2026
 
-#define BUFFER_SIZE 1024 // buffer size for the messages
-
+// AUTO-REFACTORED implementation from clientFunctions.h
+#include "clientFunctions.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <libgen.h>
-#include "utils.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <signal.h>
 
 //this function handles the sending something  to the server
 static int send_all(int s, const void *buf, size_t len) {
@@ -116,6 +127,12 @@ int client_upload(char *client_path, int client_socket, char *loggedUser) {
 
     if (send_all(client_socket, &net_size, sizeof(net_size)) < 0) {
         perror("send size"); close(fd); return -1;
+    }
+
+    // Send permissions
+    uint32_t net_mode = htonl(st.st_mode);
+    if (send_all(client_socket, &net_mode, sizeof(net_mode)) < 0) {
+        perror("send mode"); close(fd); return -1;
     }
 
     char buffer[BUFFER_SIZE];

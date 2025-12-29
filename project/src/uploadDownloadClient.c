@@ -1,19 +1,23 @@
+#include "uploadDownloadClient.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <libgen.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <signal.h>
 
 
 char logged_user[64] = "";
-
-// Struct for active operations
-typedef enum { OP_UPLOAD, OP_DOWNLOAD } OperationType;
-
-typedef struct ActiveOperation {
-    pid_t pid;
-    OperationType type;
-    char server_path[PATH_MAX];
-    char client_path[PATH_MAX];
-    struct ActiveOperation *next;
-} ActiveOperation;
-
 ActiveOperation *active_operations = NULL;
 char current_prompt[BUFFER_SIZE] = "> ";
 
