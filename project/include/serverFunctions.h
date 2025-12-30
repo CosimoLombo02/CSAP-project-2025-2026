@@ -42,6 +42,7 @@ typedef struct {
     char filename[PATH_MAX]; // Absolute path
     int valid;
     int status; // 0=Pending, 1=Accepted, 2=Rejected
+    int notified; // 0=Not Notified, 1=Notified
 } TransferRequest;
 
 typedef struct {

@@ -172,10 +172,33 @@ char *login(char *username, int client_socket, char *loggedUser) {
       return NULL;
     } // end if
 
-    send_with_cwd(client_socket, "Login successful!\n", username); // send the message to the client
+    write(client_socket, "Login successful!\n\n", strlen("Login successful!\n\n")); // just send text, no prompt yet
 
     strncpy(loggedCwd, getcwd(NULL, 0), sizeof(loggedCwd)-1);
     loggedCwd[sizeof(loggedCwd)-1] = '\0';
+
+    // Check for pending requests
+    if (shared_state) {
+        sem_wait(&shared_state->mutex);
+        for(int i=0; i<MAX_CLIENTS; i++) {
+            if(shared_state->requests[i].valid && 
+               shared_state->requests[i].status == 0 && 
+               strcmp(shared_state->requests[i].receiver, username) == 0) {
+                
+                char msg[256];
+                snprintf(msg, sizeof(msg), "Pending Request ID %d from %s: %s\n", 
+                         shared_state->requests[i].id, 
+                         shared_state->requests[i].sender, 
+                         basename(shared_state->requests[i].filename));
+                write(client_socket, msg, strlen(msg)); // Use write simply to avoid prompt spam
+                shared_state->requests[i].notified = 1;
+            }
+        }
+        sem_post(&shared_state->mutex);
+    }
+    
+    // Send CWD prompt manually at the end
+    send_with_cwd(client_socket, "", username);
 
     return username;
 
@@ -516,6 +539,7 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     strncpy(shared_state->requests[req_idx].filename, source_path, PATH_MAX);
     shared_state->requests[req_idx].valid = 1;
     shared_state->requests[req_idx].status = 0; // Pending
+    shared_state->requests[req_idx].notified = 0; // Not yet notified
 
     // Lock the file (Shared) and Track
     

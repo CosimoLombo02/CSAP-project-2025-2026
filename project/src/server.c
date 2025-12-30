@@ -90,7 +90,10 @@ void sigrtmin_handler(int signo) {
     for(int i=0; i<MAX_CLIENTS; i++) {
         // Simple read of valid and receiver_pid. If we see a partial write, it's unlikely to match both our PID and valid=1.
         if(shared_state->requests[i].valid && 
-           shared_state->requests[i].receiver_pid == my_pid) {
+           shared_state->requests[i].receiver_pid == my_pid &&
+           !shared_state->requests[i].notified) {
+               
+            shared_state->requests[i].notified = 1;
                
             // Find filename manually to avoid non-async-safe basename()
             // Increase buffer size to handle CWD
