@@ -533,15 +533,13 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
         if(lock_shared_fd(fd) < 0) {
             close(fd);
             send_with_cwd(client_sock, "Error locking file.\n", loggedUser);
-            sem_wait(&shared_state->mutex);
             shared_state->requests[req_idx].valid = 0;
             sem_post(&shared_state->mutex);
             return;
         }
         track_transfer_lock(req_id, fd);
     } else {
-        send_with_cwd(client_sock, "Error accessing file for locking.\n", loggedUser);
-        sem_wait(&shared_state->mutex);
+        send_with_cwd(client_sock, "Error accessing file.\n", loggedUser);
         shared_state->requests[req_idx].valid = 0;
         sem_post(&shared_state->mutex);
         return;

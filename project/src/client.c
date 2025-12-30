@@ -176,7 +176,11 @@ int main(int argc, char *argv[]) {
                          if (sToken && strcmp(sToken, "READY!") == 0) {
                              if (access(t2, R_OK) == 0) {
                                  send(new_sock, "OK\n", 3, 0);
-                                 client_upload(t2, new_sock, logged_user);
+                                 
+                                 if (client_upload(t2, new_sock, logged_user) == -1) {
+                                    close(new_sock);
+                                    exit(105); // Anomalous exit
+                                 }
                                  
                                  // Manually read response (silent check)
                                  char response[4096] = {0};
@@ -269,6 +273,7 @@ int main(int argc, char *argv[]) {
             if (strcmp(buffer, "exit\n") == 0) {
               if (active_operations != NULL) {
                   printf("Background operations pending... cannot exit.\n%s", current_prompt);
+                  fflush(stdout);
                   continue;
               }
               printf("Bye!\n"); // output on the console

@@ -66,18 +66,17 @@ void remove_and_print_operation(pid_t pid, int status) {
                 
                 if (temp->type == OP_UPLOAD) {
                     if (exit_code == 0) {
-                        printf("\nBackground upload of %s completed.\n%s", temp->client_path, current_prompt);
+                        printf("\n[Background] Command: upload %s %s concluded.\n%s", temp->server_path, temp->client_path, current_prompt);
                     } else if (exit_code == 101) {
-                         printf("\nBackground upload of %s failed: You are not logged in.\n%s", temp->client_path, current_prompt);
+                         printf("\n[Background] Command: upload %s %s failed: You are not logged in.\n%s", temp->server_path, temp->client_path, current_prompt);
                     } else if (exit_code == 102) {
-                         printf("\nBackground upload of %s failed: File does not exist or permission denied!\n%s", temp->client_path, current_prompt);
+                         printf("\n[Background] Command: upload %s %s failed: File does not exist or permission denied!\n%s", temp->server_path, temp->client_path, current_prompt);
                     } else if (exit_code == 103) {
-                         printf("\nBackground upload of %s failed: Server rejected upload.\n%s", temp->client_path, current_prompt);
+                         printf("\n[Background] Command: upload %s %s failed: Server rejected upload.\n%s", temp->server_path, temp->client_path, current_prompt);
                     } else {
-                         printf("\nBackground upload of %s failed with error code %d.\n%s", temp->client_path, exit_code, current_prompt);
+                         printf("\n[Background] Command: upload %s %s failed with error code %d.\n%s", temp->server_path, temp->client_path, exit_code, current_prompt);
                     }
                 } else if (temp->type == OP_DOWNLOAD) {
-                    // Spec: [Background] Command: download <server path> <client path> concluded
                     if (exit_code == 0) {
                         printf("\n[Background] Command: download %s %s concluded\n%s", temp->server_path, temp->client_path, current_prompt);
                     } else if (exit_code == 101) {
@@ -91,7 +90,7 @@ void remove_and_print_operation(pid_t pid, int status) {
                     }
                 }
             } else {
-                printf("\nBackground operation terminated abnormally.\n%s", current_prompt);
+                printf("\n[Background] operation terminated abnormally.\n%s", current_prompt);
             }
 
             fflush(stdout);

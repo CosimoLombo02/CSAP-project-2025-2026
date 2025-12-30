@@ -138,6 +138,7 @@ int client_upload(char *client_path, int client_socket, char *loggedUser) {
     char buffer[BUFFER_SIZE];
     ssize_t n;
 
+
     while ((n = read(fd, buffer, BUFFER_SIZE)) > 0) {
         if (send_all(client_socket, buffer, n) < 0) {
             perror("send"); close(fd); return -1;
