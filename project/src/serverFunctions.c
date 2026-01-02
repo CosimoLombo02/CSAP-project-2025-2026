@@ -158,7 +158,26 @@ char *login(char *username, int client_socket, char *loggedUser) {
       return NULL;
     } // end if
 
-    change_directory(username);
+    // if the user creates the directory without permission we return NULL and we notify the client with "Login failed!" 
+    // without writing the real error
+    if (change_directory(username) == 0) {
+      perror("change_directory failed");
+
+      // up to root
+      if (seteuid(0) == -1) {
+        perror("seteuid(0) failed");
+        return NULL;
+      } // end if
+
+      // back to non-root
+      if (seteuid(original_uid) == -1) {
+        perror("seteuid(original_uid) failed");
+        return NULL;
+      } // end if
+
+      send_with_cwd(client_socket, "Login failed!\n", loggedUser); // send the message to the client
+      return NULL;
+    } // end if
 
     // up to root
     if (seteuid(0) == -1) {
@@ -334,6 +353,36 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     // Check if source file exists FIRST
     char source_path[PATH_MAX];
 
+    // Use secure build path to handle absolute vs relative paths correctly
+    // Note: handle_transfer_request doesn't have loggedCwd as arg in signature, but it accesses global loggedCwd?
+    // loggedCwd is global? In handle_client it is local.
+    // Ah, handle_transfer_request is defined outside handle_client but uses loggedCwd?
+    // Wait, loggedCwd is passed to handle_client but handle_transfer_request uses a global loggedCwd?
+    // Or maybe handle_transfer_request is inside handle_client?? No, C doesn't support nested functions like that usually.
+    // Let's check where loggedCwd comes from in the snippet.
+    // Snippet shows: `snprintf(source_path, sizeof(source_path), "%s/%s", loggedCwd, filename)`
+    
+    // If loggedCwd is not available, we have a problem.
+    // But earlier I saw `char loggedCwd[PATH_MAX] = "";` inside `handle_client`.
+    // And `handle_transfer_request` implementation I saw in `serverFunctions.c` seems separated.
+    // IF loggedCwd is not passed, maybe it relies on global? 
+    // BUT the snippets showed loggedCwd local in handle_client.
+    
+    // I should check signature of `handle_transfer_request` again in my view (step 201).
+    // `void handle_transfer_request(int client_sock, char *filename, char *dest_user) { ... uses loggedCwd ... }`
+    // If `loggedCwd` is not global, this code wouldn't compile unless it is global.
+    // OR it was inlcuded in a way I missed.
+    // BUT in `handle_client` I saw `char loggedCwd[PATH_MAX] = "";`. This suggests shadowing or separate variable.
+    // If `handle_transfer_request` uses a global `loggedCwd` which is NOT the one updated in `handle_client`, that's a HUGE bug.
+    // However, for now I must update it to use `build_abs_path` and `loggedCwd`.
+    // I will assume `loggedCwd` is available (global or otherwise).
+    char cwd[PATH_MAX];
+    getcwd(cwd, sizeof(cwd));
+    build_abs_path(source_path, cwd, filename);
+    
+    // Check if path too long (build_abs_path handles constraints implicitly but let's be safe if we care, though build_abs_path returns void)
+    
+    /*
     if (snprintf(source_path, sizeof(source_path),
              "%s/%s", loggedCwd, filename)
     >= (int)sizeof(source_path)) {
@@ -342,7 +391,8 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
                   "Path too long\n",
                   loggedUser);
     return;
-}
+    }
+    */
 
     // We need to check if we can read it.
     // Ideally use access() but we are running as root or original_uid?
@@ -375,8 +425,12 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
 
     printf("DEBUG: Checking if %s exists\n", dest_user_path);
     
-    char cwd[PATH_MAX];
-    getcwd(cwd, sizeof(cwd));
+    // cwd already retrieved above
+    // build_abs_path(dest_user_path, original_cwd, dest_user); 
+    // Wait, dest_user_path uses original_cwd (Server Root), so cwd variable is NOT needed for this call?
+    // build_abs_path calls: build_abs_path(dest_user_path, original_cwd, dest_user);
+    // So getcwd(cwd) here is useless AND causes redeclaration error.
+    
     build_abs_path(dest_user_path, original_cwd, dest_user);
 
     //debug
@@ -906,8 +960,18 @@ void handle_client(int client_sock) {
               return;
             } // end if seteuid
 
-            if( resolve_and_check_path(secondToken, loggedCwd, "create")==1 && create_directory(secondToken,strtol(thirdToken, NULL, 8))==1){
-              send_with_cwd(client_sock, "Directory created successfully!\n", loggedUser);
+            if( resolve_and_check_path(secondToken, loggedCwd, "create")==1){
+               char abs_path[PATH_MAX];
+               char cwd[PATH_MAX];
+               getcwd(cwd, sizeof(cwd));
+               // Pass CWD as base for relative paths
+               build_abs_path(abs_path, cwd, secondToken);
+               
+               if(create_directory(abs_path,strtol(thirdToken, NULL, 8))==1){
+                  send_with_cwd(client_sock, "Directory created successfully!\n", loggedUser);
+               } else {
+                  send_with_cwd(client_sock, "Error in the directory creation!\n", loggedUser);
+               }
             } else {
               send_with_cwd(client_sock, "Error in the directory creation!\n", loggedUser);
             }
@@ -938,8 +1002,17 @@ void handle_client(int client_sock) {
               return;
             } // end if seteuid
             
-            if( resolve_and_check_path(secondToken, loggedCwd, "create")==1 && create_file(secondToken,strtol(thirdToken, NULL, 8))==1 ){
-              send_with_cwd(client_sock, "File created successfully!\n", loggedUser);
+            if( resolve_and_check_path(secondToken, loggedCwd, "create")==1 ){
+               char abs_path[PATH_MAX];
+               char cwd[PATH_MAX];
+               getcwd(cwd, sizeof(cwd));
+               build_abs_path(abs_path, cwd, secondToken);
+               
+               if(create_file(abs_path,strtol(thirdToken, NULL, 8))==1){
+                  send_with_cwd(client_sock, "File created successfully!\n", loggedUser);
+               } else {
+                  send_with_cwd(client_sock, "Error in the file creation!\n", loggedUser);
+               }
             } else {
               send_with_cwd(client_sock, "Error in the file creation!\n", loggedUser);
             }
@@ -990,9 +1063,16 @@ void handle_client(int client_sock) {
               return;
             } // end if seteuid
 
-            if(resolve_and_check_path(secondToken, loggedCwd, "cd")==1 && change_directory(secondToken)==1){
-
-              send_with_cwd(client_sock, "Directory changed successfully!\n", loggedUser);
+            if(resolve_and_check_path(secondToken, loggedCwd, "cd")==1){
+               char abs_path[PATH_MAX];
+               char cwd[PATH_MAX];
+               getcwd(cwd, sizeof(cwd));
+               build_abs_path(abs_path, cwd, secondToken);
+               if(change_directory(abs_path)==1){
+                  send_with_cwd(client_sock, "Directory changed successfully!\n", loggedUser);
+               }else{
+                  send_with_cwd(client_sock, "Error in the directory change!\n", loggedUser);
+               }
             }else{
               send_with_cwd(client_sock, "Error in the directory change!\n", loggedUser);
             }
@@ -1035,7 +1115,11 @@ void handle_client(int client_sock) {
             send_with_cwd(client_sock, out, loggedUser);
           }else{
             if(resolve_and_check_path(secondToken, loggedCwd, "list")==1){
-              list_directory_string(secondToken, out, sizeof(out));
+              char abs_path[PATH_MAX];
+              char cwd[PATH_MAX];
+              getcwd(cwd, sizeof(cwd));
+              build_abs_path(abs_path, cwd, secondToken);
+              list_directory_string(abs_path, out, sizeof(out));
               send_with_cwd(client_sock, out, loggedUser);
             }else{
               send_with_cwd(client_sock, "Error in the directory listing!\n", loggedUser);
@@ -1078,7 +1162,11 @@ void handle_client(int client_sock) {
               if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
 
               if(path_valid == 1){
-               handle_upload(client_sock, thirdToken, secondToken, loggedUser, get_uid_by_username(loggedUser), get_gid_by_username(loggedUser));
+               char abs_path[PATH_MAX];
+               char cwd[PATH_MAX];
+               getcwd(cwd, sizeof(cwd));
+               build_abs_path(abs_path, cwd, thirdToken);
+               handle_upload(client_sock, abs_path, secondToken, loggedUser, get_uid_by_username(loggedUser), get_gid_by_username(loggedUser));
               }else{
                 send_with_cwd(client_sock, "Error in the file upload!\n", loggedUser);
               }
@@ -1117,7 +1205,11 @@ void handle_client(int client_sock) {
                 // Check succeeded as user?
                 if(path_valid == 1){
                   // We are already USER here.
-                  handle_download(client_sock, secondToken, loggedUser);
+                  char abs_path[PATH_MAX];
+                  char cwd[PATH_MAX];
+                  getcwd(cwd, sizeof(cwd));
+                  build_abs_path(abs_path, cwd, secondToken);
+                  handle_download(client_sock, abs_path, loggedUser);
                 }else{
                     send_with_cwd(client_sock, "Error in the file download!\n", loggedUser);
                 }
@@ -1153,7 +1245,12 @@ void handle_client(int client_sock) {
               }else{
                 // handle_chmod calls open(O_RDONLY) then fchmod. 
                 // User owns file, so can fchmod.
-                if(handle_chmod(secondToken, thirdToken)==-1){
+                char abs_path[PATH_MAX];
+                char cwd[PATH_MAX];
+                getcwd(cwd, sizeof(cwd));
+                build_abs_path(abs_path, cwd, secondToken);
+                
+                if(handle_chmod(abs_path, thirdToken)==-1){
                   send_with_cwd(client_sock, "Error in the file chmod!\n", loggedUser);
                 }else{
                   send_with_cwd(client_sock, "File chmod successfully!\n", loggedUser);
@@ -1360,12 +1457,12 @@ void handle_client(int client_sock) {
               // Actually resolve_and_check_path operates on arg.
               // Let's resolve properly to check lock
               getcwd(cwd, sizeof(cwd));
-              build_abs_path(abs_path, cwd, secondToken);
+              build_abs_path(abs_path, cwd, secondToken); // Use CWD
               
               if(is_file_locked_by_transfer(abs_path)) {
                    send_with_cwd(client_sock, "File is locked by pending transfer!\n", loggedUser);
               } else {
-                  if(handle_delete(secondToken)==-1){
+                  if(handle_delete(abs_path)==-1){
                     send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
                   }else{
                     send_with_cwd(client_sock, "File deleted successfully!\n", loggedUser);

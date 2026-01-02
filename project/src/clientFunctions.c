@@ -101,13 +101,20 @@ int client_download(char *server_path, char *client_path, int client_socket) {
 //this function handles the upload of a file to the server
 int client_upload(char *client_path, int client_socket, char *loggedUser) {
     
-    char *full_path = malloc(strlen(client_path) + strlen(getcwd(NULL, 0)) + 2);
-    if (full_path == NULL) {
-        perror("malloc");
-        return -1;
+    char *full_path;
+    if (client_path[0] == '/') {
+        full_path = strdup(client_path);
+    } else {
+        full_path = malloc(strlen(client_path) + strlen(getcwd(NULL, 0)) + 2);
+        if (full_path != NULL) {
+            snprintf(full_path, strlen(client_path) + strlen(getcwd(NULL, 0)) + 2, "%s/%s", getcwd(NULL, 0), client_path);
+        }
     }
 
-    snprintf(full_path, strlen(client_path) + strlen(getcwd(NULL, 0)) + 2, "%s/%s", getcwd(NULL, 0), client_path);
+    if (full_path == NULL) {
+        perror("malloc/strdup");
+        return -1;
+    }
 
     
 

@@ -148,9 +148,16 @@ int main(int argc, char *argv[]) {
                          snprintf(login_cmd, sizeof(login_cmd), "login %s\n", logged_user);
                          write(new_sock, login_cmd, strlen(login_cmd));
                          
-                         // Consume login response
+                         // Consume login response until prompt is received
                          char tmp[BUFFER_SIZE];
-                         read(new_sock, tmp, BUFFER_SIZE-1);
+                         int total_read = 0;
+                         while(total_read < BUFFER_SIZE - 1) {
+                             int r = read(new_sock, tmp + total_read, BUFFER_SIZE - 1 - total_read);
+                             if (r <= 0) break;
+                             total_read += r;
+                             tmp[total_read] = '\0';
+                             if (strstr(tmp, "> ") != NULL) break;
+                         }
                      }
                      
                      // Send upload command without -b
@@ -229,7 +236,14 @@ int main(int argc, char *argv[]) {
                          snprintf(login_cmd, sizeof(login_cmd), "login %s\n", logged_user);
                          write(new_sock, login_cmd, strlen(login_cmd));
                          char tmp[BUFFER_SIZE];
-                         read(new_sock, tmp, BUFFER_SIZE-1);
+                         int total_read = 0;
+                         while(total_read < BUFFER_SIZE - 1) {
+                             int r = read(new_sock, tmp + total_read, BUFFER_SIZE - 1 - total_read);
+                             if (r <= 0) break;
+                             total_read += r;
+                             tmp[total_read] = '\0';
+                             if (strstr(tmp, "> ") != NULL) break;
+                         }
                      }
                      
                      // Send download command without -b

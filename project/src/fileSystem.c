@@ -272,7 +272,7 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
     *current_pos = '\0'; 
 
     if ((dir = opendir(path)) == NULL) {
-        snprintf(out, out_size, "Errore: impossibile aprire %s: %s\n", path, strerror(errno));
+        snprintf(out, out_size, "Error: impossible to open %s: %s\n", path, strerror(errno));
         return;
     }
 

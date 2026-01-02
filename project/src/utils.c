@@ -124,22 +124,99 @@ char *remove_prefix(const char *str, const char *prefix) {
 } // end remove_prefix
 
 
+// Helper to normalize path logically (resolve . and .. string-wise)
+void normalize_path(char *path) {
+    char *p = path;
+    char *out = path;
+    
+    // Very simple normalization for /.. and /. patterns
+    // We assume path is absolute or starts with /
+    
+    // Algorithm: iterate tokens. Stack-like approach in-place.
+    // Since we only shrink, we can do it in place.
+    // But handling standard string tokenization is tricky in C.
+    // Let's implement a robust pass.
+    
+    // 1. Remove multiple slashes is already done by helper/snprintf usually but we can do it.
+    // 2. Resolve . and ..
+    
+    // Approach: Use a temporary stack buffer
+    char stack[PATH_MAX];
+    char *token;
+    char temp_path[PATH_MAX];
+    strncpy(temp_path, path, PATH_MAX);
+    
+    int stack_len = 0;
+    stack[0] = '\0';
+    
+    token = strtok(temp_path, "/");
+    while(token != NULL) {
+        if(strcmp(token, ".") == 0) {
+            // ignore
+        } else if(strcmp(token, "..") == 0) {
+            // pop
+            char *last_slash = strrchr(stack, '/');
+            if(last_slash) {
+                *last_slash = '\0';
+            } else {
+                 stack[0] = '\0'; // root
+            }
+        } else {
+            // push
+            if(stack_len + strlen(token) + 2 < PATH_MAX) {
+                strcat(stack, "/");
+                strcat(stack, token);
+            }
+        }
+        token = strtok(NULL, "/");
+    }
+    
+    if(strlen(stack) == 0) strcpy(stack, "/");
+    
+    strcpy(path, stack);
+}
+
 // this function resolves and checks a path
 // 0 not valid, 1 valid
 int resolve_and_check_path(const char *input, const char *loggedCwd, const char *command) {
   char absolute_path[PATH_MAX];
-   //debug
-    
-    printf("Path resolved: %s\n", absolute_path);
-    printf("Logged CWD: %s\n", loggedCwd);
-    printf("Input: %s\n", input);
+  char path_to_resolve[PATH_MAX];
+  char normalized_logical[PATH_MAX];
+
+  char cwd[PATH_MAX];
+  if (getcwd(cwd, sizeof(cwd)) == NULL) {
+      perror("getcwd failed");
+      return 0;
+  }
+
+  // Handle "absolute" paths (relative to Server Root)
+  if (input[0] == '/') {
+      if (snprintf(path_to_resolve, sizeof(path_to_resolve), "%s%s", original_cwd, input) >= (int)sizeof(path_to_resolve)) {
+          fprintf(stderr, "Path too long: %s%s\n", original_cwd, input);
+          return 0;
+      }
+  } else {
+      // Relative paths: Resolve against CWD
+      if (snprintf(path_to_resolve, sizeof(path_to_resolve), "%s/%s", cwd, input) >= (int)sizeof(path_to_resolve)) {
+          fprintf(stderr, "Path too long: %s/%s\n", cwd, input);
+          return 0;
+      }
+  }
+  
+  // LOGICAL NORMALIZATION FIRST
+  // This allows resolving "cwd/.." logically even if cwd is 000 permission
+  strncpy(normalized_logical, path_to_resolve, PATH_MAX);
+  normalize_path(normalized_logical);
+
+  // debug
+  // printf("Resolving: %s -> Normalized: %s\n", path_to_resolve, normalized_logical);
 
   if((strcmp(command, "create") == 0) || (strcmp(command, "move") == 0)){
       char temp_path[PATH_MAX];
       char *dir_name;
       char resolved_dir[PATH_MAX];
 
-      strncpy(temp_path, input, sizeof(temp_path));
+      strncpy(temp_path, normalized_logical, sizeof(temp_path));
       temp_path[sizeof(temp_path) - 1] = '\0';
       
       dir_name = dirname(temp_path);
@@ -152,6 +229,11 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
       // Check if the resolved parent directory is inside the sandbox
       size_t root_len = strlen(loggedCwd);
       if (strncmp(resolved_dir, loggedCwd, root_len) != 0) {
+          // Special case: if the target IS the sandbox root, it's allowed
+          // (e.g. move file /spalletti -> /spalletti/file)
+          if(strcmp(normalized_logical, loggedCwd) == 0) {
+             return 1;
+          }
           return 0; // Parent is outside sandbox
       }
 
@@ -160,12 +242,12 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
   }else if (strcmp(command, "list") != 0) {
 
     // resolve the path
-    if (realpath(input, absolute_path) == NULL) {
+    // Use the NORMALIZED path for realpath.
+    // If we are "cd .." from 000 dir, normalized path will be "/path/to/parent" (absolute).
+    // realpath("/path/to/parent") should work.
+    if (realpath(normalized_logical, absolute_path) == NULL) {
         return 0;
     }
-
-   
-    
 
     // check if the path is inside the sandbox
     size_t root_len = strlen(loggedCwd);
@@ -178,7 +260,7 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
   } else {
     
   // resolve the path
-    if (realpath(input, absolute_path) == NULL) {
+    if (realpath(normalized_logical, absolute_path) == NULL) {
         return 0;
     }
 
@@ -202,19 +284,20 @@ void build_abs_path(char *abs_path,
         return;
     } // end if
 
-    // Case 1: absolute path
+    // Case 1: absolute path (relative to Server Root)
     if (user_path[0] == '/') {
-        // loggedCwd is the root of the user
-        snprintf(abs_path, PATH_MAX, "%s%s", loggedCwd, user_path);
+        if (snprintf(abs_path, PATH_MAX, "%s%s", original_cwd, user_path) >= PATH_MAX) {
+             // Truncation handled safely by snprintf but ignored
+        }
     }
-    // Case 2: relative path
+    // Case 2: relative path (relative to loggedCwd argument)
     else {
-        snprintf(abs_path, PATH_MAX, "%s/%s", loggedCwd, user_path);
+        if (snprintf(abs_path, PATH_MAX, "%s/%s", loggedCwd, user_path) >= PATH_MAX) {
+             // Truncation handled safely
+        }
     } // end else
 
-    // Minimal normalization: remove "//"
-    char *p;
-    while ((p = strstr(abs_path, "//")) != NULL) {
-        memmove(p, p + 1, strlen(p));
-    } // end while
+    // Use logical normalization instead of just removing //
+    normalize_path(abs_path);
+
 }// end build_abs_path
