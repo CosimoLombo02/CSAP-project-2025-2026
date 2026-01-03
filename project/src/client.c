@@ -435,7 +435,7 @@ int main(int argc, char *argv[]) {
                       } // end if
                     } // end else
                     buffer[n] = '\0';     // string terminator
-                    printf("%s", buffer); // Debug
+                    printf("%s", buffer);
                     fflush(stdout);
                 
                 }//end else access

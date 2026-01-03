@@ -276,13 +276,6 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
         return;
     }
 
-    //add header
-    written = snprintf(current_pos, remaining_size, "--- Content of: %s ---\n", path);
-    if (written > 0) {
-        current_pos += written;
-        remaining_size -= written;
-    }
-
     // loops and appends files
     while ((entry = readdir(dir)) != NULL && remaining_size > 0) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
@@ -362,7 +355,7 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
   // Lock the file (Exclusive)
   if (lock_exclusive_fd(fileno(fd)) < 0) {
       perror("lock_exclusive_fd");
-      send_with_cwd(client_sock, "Error locking file\n", loggedUser);
+      send_with_cwd(client_sock, "Error uploading file\n", loggedUser);
       fclose(fd);
       return;
   }
@@ -426,7 +419,7 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
     // Lock the file (Shared)
     if (lock_shared_fd(fd) < 0) {
         perror("lock_shared_fd");
-        send_with_cwd(client_sock, "Error locking file\n", loggedUser);
+        send_with_cwd(client_sock, "Error downloading file\n", loggedUser);
         close(fd);
         return;
     }
@@ -537,10 +530,28 @@ int handle_mv(const char *old_abs, const char *new_abs) {
     dest_path = full_new_path;
   }
 
+  // LOCKING (Only for files)
+  int fd = -1;
+  // Check if old_abs is a directory (we don't lock directories with fcntl)
+  if (stat(old_abs, &st) == 0 && !S_ISDIR(st.st_mode)) {
+      fd = open(old_abs, O_WRONLY);
+      if (fd >= 0) {
+          if (lock_exclusive_fd(fd) < 0) {
+              perror("Resource busy (move)");
+              close(fd);
+              return -1;
+          }
+      } 
+      // If open fails (e.g. permission), we proceed to rename without lock
+  }
+
   if (rename(old_abs, dest_path) == -1){
-    perror("error");
+    perror("error renaming");
+    if(fd >= 0) { unlock_fd(fd); close(fd); }
     return -1;
   }
+  
+  if(fd >= 0) { unlock_fd(fd); close(fd); }
   return 0;
 }//end handle_mv
 
@@ -597,7 +608,7 @@ void handle_read(int client_sock, char *server_path, char *loggedUser, long offs
     // Lock the file
     if (lock_shared_fd(fd) < 0) {
         perror("lock_shared_fd");
-        send_with_cwd(client_sock, "Error locking file\n", loggedUser);
+        send_with_cwd(client_sock, "Error reading file\n", loggedUser);
         goto release;
     } // end lock_shared_fd
     locked = 1;
@@ -692,7 +703,7 @@ void handle_write(int client_sock, char *server_path, char *loggedUser, long off
     // Lock the file with exclusive lock
     if (lock_exclusive_fd(fd) < 0) {
         perror("lock_exclusive_fd");
-        send_with_cwd(client_sock, "Error locking file\n", loggedUser);
+        send_with_cwd(client_sock, "Error writing file\n", loggedUser);
         goto release;
     } // end lock_exclusive_fd
     locked = 1;

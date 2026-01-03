@@ -284,7 +284,7 @@ void create_user(char *username, char *permissions, int client_sock) {
 
   build_abs_path(abs_path,original_cwd, username);
 
-  printf("DEBUG: abs_path: %s\n", abs_path); //debug
+  //printf("DEBUG: abs_path: %s\n", abs_path);
 
   // create the user's home directory
   if (!create_directory(abs_path, strtol(permissions, NULL, 8))) {
@@ -336,7 +336,7 @@ void remove_logged_user(char *username) {
     for(int i=0; i<MAX_CLIENTS; i++) {
         if(shared_state->logged_users[i].valid && strcmp(shared_state->logged_users[i].username, username) == 0) {
             shared_state->logged_users[i].valid = 0;
-            printf("DEBUG: User %s logged out (removed from shared state)\n", username);
+            //printf("DEBUG: User %s logged out (removed from shared state)\n", username);
             break;
         }
     }
@@ -423,7 +423,7 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     return;
 }
 
-    printf("DEBUG: Checking if %s exists\n", dest_user_path);
+    //printf("DEBUG: Checking if %s exists\n", dest_user_path);
     
     // cwd already retrieved above
     // build_abs_path(dest_user_path, original_cwd, dest_user); 
@@ -432,10 +432,8 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     // So getcwd(cwd) here is useless AND causes redeclaration error.
     
     build_abs_path(dest_user_path, original_cwd, dest_user);
-
-    //debug
     
-    printf("DEBUG: Destination user path: %s\n", dest_user_path);
+    //printf("DEBUG: Destination user path: %s\n", dest_user_path);
 
     // up to root
     if(seteuid(0) == -1) perror("seteuid 0");
@@ -446,8 +444,8 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     }
     if(seteuid(original_uid) == -1) perror("seteuid restore");
     
-
-    printf("DEBUG: Handling transfer_request for %s -> %s\n", filename, dest_user);
+    // trace the transfer request on the server
+    printf("Handling transfer_request for %s -> %s\n", filename, dest_user);
 
     // Block SIGUSR1 so we can wait for it safely with sigsuspend
     sigset_t mask, oldmask, waitmask;
@@ -498,7 +496,8 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
             return;
         }
 
-        printf("DEBUG: User %s not online. Waiting (PID %d)...\n", dest_user, getpid());
+        // Notify the server that we are waiting for the user to connect
+        printf("User %s not online. Waiting (PID %d)...\n", dest_user, getpid());
 
         // Notify client that we are waiting (this unblocks the client READ, but server remains blocked in handle_client)
         // The user will see the prompt but commands will hang until server wakes up.
@@ -509,7 +508,7 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
         write(client_sock, wait_msg, strlen(wait_msg));
 
         sigsuspend(&waitmask); // Atomic release and wait
-        printf("DEBUG: Woke up!\n");
+        //printf("DEBUG: Woke up!\n");
         
         // Cleanup waiter entry before looping or exiting
         sem_wait(&shared_state->mutex);
@@ -610,7 +609,7 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     if(fd >= 0) {
         if(lock_shared_fd(fd) < 0) {
             close(fd);
-            send_with_cwd(client_sock, "Error locking file.\n", loggedUser);
+            send_with_cwd(client_sock, "Error transferring file.\n", loggedUser);
             shared_state->requests[req_idx].valid = 0;
             sem_post(&shared_state->mutex);
             return;
@@ -745,6 +744,25 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     // RESOLVE PATHS
     char cwd[PATH_MAX];
     getcwd(cwd, sizeof(cwd));
+
+    // START SANDBOX CHECK
+    // Impersonate user for path resolution
+    if (seteuid(0) == -1) { perror("seteuid 0"); return; }
+    if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid user"); return; }
+
+    if (!resolve_and_check_path(dir, loggedCwd, "accept")) {
+         send_with_cwd(client_sock, "Invalid directory.\n", loggedUser);
+         // Restore
+         if (seteuid(0) == -1) perror("seteuid 0");
+         if (seteuid(original_uid) == -1) perror("seteuid orig");
+         return;
+    }
+
+    // Restore to root for build_abs_path and subsequent checks (though build_abs_path is string manip)
+    if (seteuid(0) == -1) { perror("seteuid 0"); return; }
+    if (seteuid(original_uid) == -1) { perror("seteuid orig"); return; }
+    // END SANDBOX CHECK
+
     build_abs_path(dest_dir_abs, cwd, dir);
     
     // Check if dir exists
@@ -834,7 +852,7 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
 
 /*This function is a the main function that handles the client,
 as we can see it has different behaviuors based on the message received  */
-void handle_client(int client_sock) {
+void handle_client(int client_sock, int port) {
 
   // Set global for signal handler
   current_client_sock = client_sock;
@@ -853,6 +871,9 @@ void handle_client(int client_sock) {
     
     if (n < 0) {
         if (errno == EINTR) continue; // Ignore signal interruptions
+        if (errno == ECONNRESET) {
+        break;
+    }
         perror("read error");
         break;
     } 
@@ -863,11 +884,11 @@ void handle_client(int client_sock) {
     buffer[n] = '\0'; /*Terminates the buffer, maybe we can consider this as a
     buffer overflow security measure ?
     */
-    printf("Client: %s",
-           buffer); // print the message received from the client, server side
+    printf("Client (Port %d): %s",
+           port, buffer); // print the message received from the client, server side
     // write(client_sock, buffer, n); //send the message to the client
 
-    printf("DEBUG start-while euid: %d\n", geteuid()); // debug
+    //printf("DEBUG start-while euid: %d\n", geteuid());
 
     // test
     char *firstToken = strtok(buffer, " "); // first token is the command
@@ -915,7 +936,7 @@ void handle_client(int client_sock) {
             // Wake up waiting processes
             for(int i=0; i<MAX_CLIENTS; i++) {
                 if(shared_state->waiters[i].valid && strcmp(shared_state->waiters[i].target_user, loggedUser) == 0) {
-                    printf("DEBUG: Waking up PID %d waiting for %s\n", shared_state->waiters[i].pid, loggedUser);
+                    printf("Waking up PID %d waiting for %s\n", shared_state->waiters[i].pid, loggedUser); // Notify the server that we are waiting for the user to connect
                     kill(shared_state->waiters[i].pid, SIGUSR1);
                 }
             }
@@ -1297,7 +1318,7 @@ void handle_client(int client_sock) {
                   build_abs_path(new_abs, cwd, thirdToken);
 
                   if(is_file_locked_by_transfer(old_abs)) {
-                      send_with_cwd(client_sock, "Source file is locked by pending transfer!\n", loggedUser);
+                      send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
                   } else {
                       if(handle_mv(old_abs, new_abs)==-1){
                         send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
@@ -1406,7 +1427,7 @@ void handle_client(int client_sock) {
                       
                     // Check locks before write
                     if(is_file_locked_by_transfer(abs_path)) {
-                        send_with_cwd(client_sock, "File is locked by pending transfer!\n", loggedUser);
+                        send_with_cwd(client_sock, "Error in the file write!\n", loggedUser);
                     } else {
                         handle_write(client_sock, abs_path, loggedUser, offset);
                     }
@@ -1460,7 +1481,7 @@ void handle_client(int client_sock) {
               build_abs_path(abs_path, cwd, secondToken); // Use CWD
               
               if(is_file_locked_by_transfer(abs_path)) {
-                   send_with_cwd(client_sock, "File is locked by pending transfer!\n", loggedUser);
+                   send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
               } else {
                   if(handle_delete(abs_path)==-1){
                     send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
@@ -1530,7 +1551,7 @@ void handle_client(int client_sock) {
         send_with_cwd(client_sock, "Invalid Command!\n", loggedUser);
       }//end else chmod invalid command
 
-      printf("DEBUG euid end-while: %d\n", geteuid()); // debug
+      //printf("DEBUG euid end-while: %d\n", geteuid());
   } // end while
 
   // Cleanup user from shared memory before exiting
@@ -1539,7 +1560,7 @@ void handle_client(int client_sock) {
   }
 
   close(client_sock);
-  printf("Client disconnected\n"); // Debug
+  printf("Client disconnected port : %d\n", port);
   exit(0);                         // ends the child process
 
 } // end function client handler

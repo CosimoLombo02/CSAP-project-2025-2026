@@ -208,8 +208,8 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
   strncpy(normalized_logical, path_to_resolve, PATH_MAX);
   normalize_path(normalized_logical);
 
-  // debug
-  // printf("Resolving: %s -> Normalized: %s\n", path_to_resolve, normalized_logical);
+ 
+  //printf("DEBUG: Resolving: %s -> Normalized: %s\n", path_to_resolve, normalized_logical);
 
   if((strcmp(command, "create") == 0) || (strcmp(command, "move") == 0)){
       char temp_path[PATH_MAX];

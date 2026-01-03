@@ -1,3 +1,6 @@
+// Cosimo Lombardi 2031075 CSAP project 2025/2026
+// Simone Di Gregorio 2259275 CSAP project 2025/2026
+
 #ifndef UPLOAD_DOWNLOAD_CLIENT_H
 #define UPLOAD_DOWNLOAD_CLIENT_H
 

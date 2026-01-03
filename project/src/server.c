@@ -278,7 +278,6 @@ int main(int argc, char *argv[]) {
   // signal handler for the child process
   signal(SIGCHLD, sigchld_handler);
 
-  // Debug, if I am here the binding is working correctly
   printf("Server working on ip: %s and port %d\n", server_ip, port);
 
   fd_set readfds;
@@ -343,8 +342,7 @@ int main(int argc, char *argv[]) {
         perror("Error in the accept!");
         continue;
       } // end if
-
-      // Debug, if I am here the accept is working correctly
+      
       printf("Client connected from ip: %s and port %d\n",
              inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
@@ -357,7 +355,7 @@ int main(int argc, char *argv[]) {
       else {
         if (pid == 0) {
           close(server_sock); // child closes server socket
-          handle_client(client_sock);
+          handle_client(client_sock, ntohs(client_addr.sin_port));
           close(client_sock);
           exit(0);
         } else {
