@@ -13,7 +13,7 @@ gcc -Wextra -Iinclude \
 
 # SERVER
 gcc -Wextra -Iinclude \
-  src/server.c src/serverFunctions.c src/utils.c src/fileSystem.c \
+  src/server.c src/serverFunctions.c src/utils.c src/fileSystem.c src/signalHandlersServer.c src/lockServer.c src/clientsHandler.c \
   -o server
 
 echo "Build completed successfully"
