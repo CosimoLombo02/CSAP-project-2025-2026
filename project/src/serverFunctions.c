@@ -24,8 +24,6 @@
 char loggedUser[64] = "";
 char loggedCwd[PATH_MAX] = "";
 
-
-
 int create_system_user(char *username) {
 
   // char *group = get_group();
@@ -270,9 +268,6 @@ void create_user(char *username, char *permissions, int client_sock) {
   return;
 } // end function create_user
 
-
-
-
 // Helper to remove user from shared memory
 void remove_logged_user(char *username) {
     if(!username || strlen(username) == 0 || !shared_state) return;
@@ -294,46 +289,12 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
         send_with_cwd(client_sock, "Usage: transfer_request <file> <user>\n", loggedUser);
         return;
     }
-
-    // Check if source file exists FIRST
     char source_path[PATH_MAX];
 
-    // Use secure build path to handle absolute vs relative paths correctly
-    // Note: handle_transfer_request doesn't have loggedCwd as arg in signature, but it accesses global loggedCwd?
-    // loggedCwd is global? In handle_client it is local.
-    // Ah, handle_transfer_request is defined outside handle_client but uses loggedCwd?
-    // Wait, loggedCwd is passed to handle_client but handle_transfer_request uses a global loggedCwd?
-    // Or maybe handle_transfer_request is inside handle_client?? No, C doesn't support nested functions like that usually.
-    // Let's check where loggedCwd comes from in the snippet.
-    // Snippet shows: `snprintf(source_path, sizeof(source_path), "%s/%s", loggedCwd, filename)`
-    
-    // If loggedCwd is not available, we have a problem.
-    // But earlier I saw `char loggedCwd[PATH_MAX] = "";` inside `handle_client`.
-    // And `handle_transfer_request` implementation I saw in `serverFunctions.c` seems separated.
-    // IF loggedCwd is not passed, maybe it relies on global? 
-    // BUT the snippets showed loggedCwd local in handle_client.
-    
-    // I should check signature of `handle_transfer_request` again in my view (step 201).
-    // `void handle_transfer_request(int client_sock, char *filename, char *dest_user) { ... uses loggedCwd ... }`
-    // If `loggedCwd` is not global, this code wouldn't compile unless it is global.
-    // OR it was inlcuded in a way I missed.
-    // BUT in `handle_client` I saw `char loggedCwd[PATH_MAX] = "";`. This suggests shadowing or separate variable.
-    // If `handle_transfer_request` uses a global `loggedCwd` which is NOT the one updated in `handle_client`, that's a HUGE bug.
-    // However, for now I must update it to use `build_abs_path` and `loggedCwd`.
-    // I will assume `loggedCwd` is available (global or otherwise).
     char cwd[PATH_MAX];
     getcwd(cwd, sizeof(cwd));
     build_abs_path(source_path, cwd, filename);
-
-
-    // We need to check if we can read it.
-    // Ideally use access() but we are running as root or original_uid?
-    // We are running as root (seteuid(0) was called in main? No, seteuid(original_uid)).
-    // So we need to seteuid(0) to check file owned by user?
-    // The server runs effectively as root eventually?
-    // Using `access` might check real UID/GID.
-    // Better: elevate to 0, check, restore.
-    
+  
     if(seteuid(0) == -1) perror("seteuid 0");
     if(access(source_path, F_OK) == -1) {
         if(seteuid(original_uid) == -1) perror("seteuid restore");
@@ -342,7 +303,6 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     }
     if(seteuid(original_uid) == -1) perror("seteuid restore");
 
-    // Check if dest_user home directory exists in the root directory
     char dest_user_path[PATH_MAX];
 
     if (snprintf(dest_user_path, sizeof(dest_user_path),
@@ -356,12 +316,6 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
 }
 
     //printf("DEBUG: Checking if %s exists\n", dest_user_path);
-    
-    // cwd already retrieved above
-    // build_abs_path(dest_user_path, original_cwd, dest_user); 
-    // Wait, dest_user_path uses original_cwd (Server Root), so cwd variable is NOT needed for this call?
-    // build_abs_path calls: build_abs_path(dest_user_path, original_cwd, dest_user);
-    // So getcwd(cwd) here is useless AND causes redeclaration error.
     
     build_abs_path(dest_user_path, original_cwd, dest_user);
     
@@ -399,12 +353,12 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
                 found = 1;
                 break;
             }
-        }
+        } // end for
 
         if(found) {
              sem_post(&shared_state->mutex);
              break; 
-        }
+        } // end if
 
         // Add myself to waiters
         int added = 0;
@@ -417,8 +371,8 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
                  my_slot = i;
                  added = 1;
                  break;
-            }
-        }
+            } // end if
+        } // end for
         sem_post(&shared_state->mutex);
 
         if(!added) {
@@ -431,15 +385,12 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
         // Notify the server that we are waiting for the user to connect
         printf("User %s not online. Waiting (PID %d)...\n", dest_user, getpid());
 
-        // Notify client that we are waiting (this unblocks the client READ, but server remains blocked in handle_client)
-        // The user will see the prompt but commands will hang until server wakes up.
         char wait_msg[256];
         snprintf(wait_msg, sizeof(wait_msg), "User %s not online. Waiting for connection...\n", dest_user);
-        // send_with_cwd(client_sock, wait_msg, loggedUser);
-        // USE write directly to avoid sending the prompt (CWD >), so the user knows we are waiting.
         write(client_sock, wait_msg, strlen(wait_msg));
 
         sigsuspend(&waitmask); // Atomic release and wait
+
         //printf("DEBUG: Woke up!\n");
         
         // Cleanup waiter entry before looping or exiting
@@ -450,26 +401,21 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     
     // Restore signal mask
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
-
-    // --- Create Transfer Request ---
-    // At this point, dest_user is online.
-    
-    // 1. Resolve Source Path (cwd/filename)
-    // Validate that source_path is within the user's sandbox
+  
     char resolved_source_path[PATH_MAX];
   
-    // Impersonate user for realpath
+    // Impersonate user
     if (seteuid(0) == -1) { perror("seteuid 0"); return; }
     if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid user"); return; }
 
     if (realpath(source_path, resolved_source_path) == NULL) {
         perror("realpath");
         send_with_cwd(client_sock, "Error resolving source file path.\n", loggedUser);
-        seteuid(0); seteuid(original_uid); // Restore
+        seteuid(0); seteuid(original_uid); // Restore original uid
         return;
     }
     
-    // Restore
+    // Restore original uid
     if (seteuid(0) == -1) { perror("seteuid 0"); return; }
     if (seteuid(original_uid) == -1) { perror("seteuid orig"); return; }
 
@@ -480,11 +426,10 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     
     // Update source_path to resolved absolute path
     strncpy(source_path, resolved_source_path, PATH_MAX);
-
-
+    
     sem_wait(&shared_state->mutex);
     
-    // Find dest_user PID again (it might have changed if they relogged, though we just passed blocking)
+    // Find dest_user PID again
     pid_t dest_pid = -1;
     for(int i=0; i<MAX_CLIENTS; i++) {
         if(shared_state->logged_users[i].valid && strcmp(shared_state->logged_users[i].username, dest_user) == 0) {
@@ -525,20 +470,19 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     shared_state->requests[req_idx].valid = 1;
     shared_state->requests[req_idx].status = 0; // Pending
     shared_state->requests[req_idx].notified = 0; // Not yet notified
-
-    // Lock the file (Shared) and Track
     
-    // Elevate for opening/locking
+    // impersonate the user
     if(seteuid(0) == -1) perror("seteuid 0");
     if(seteuid(get_uid_by_username(loggedUser)) == -1) perror("seteuid user");
     
     int fd = open(source_path, O_RDONLY);
     
-    // Restore
+    // Restore original uid
     if(seteuid(0) == -1) perror("seteuid 0");
     if(seteuid(original_uid) == -1) perror("seteuid orig");
 
     if(fd >= 0) {
+      // Lock the file (Shared) and Track
         if(lock_shared_fd(fd) < 0) {
             close(fd);
             send_with_cwd(client_sock, "Error transferring file.\n", loggedUser);
@@ -563,19 +507,11 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user) {
     char msg[256];
     snprintf(msg, sizeof(msg), "Request ID %d sent to %s. Waiting for accept/reject...\n", req_id, dest_user);
     send_with_cwd(client_sock, msg, loggedUser);
-    
-    // NON-BLOCKING for the Sender (as requested)
-    // We return immediately. 
-    // The Sender process will continue handling its client.
-    // When the Receiver eventually Accepts/Rejects, it will send SIGUSR2 to THIS process (Sender PID).
-    // The SIGUSR2 handler in server.c must handle the notification to the client.
 
     return;
-}
+} // end send_file
 
-
-/*This function is a the main function that handles the client,
-as we can see it has different behaviuors based on the message received  */
+// This function handles the reject request
 void handle_reject(int client_sock, int req_id, char *loggedUser) {
     if(!shared_state) return;
     
@@ -658,12 +594,8 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
         return;
     }
     
-    // Perform Transfer
-    // 1. Resolve Dest Path
     char dest_path[PATH_MAX];
     char dest_dir_abs[PATH_MAX];
-    
-    // Resolve 'dir' relative to CWD
     
     // Copy request data
     char filename[PATH_MAX];
@@ -673,27 +605,24 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     sem_post(&shared_state->mutex);
     sigprocmask(SIG_SETMASK, &old_mask, NULL); // Unblock signals during IO
     
-    // RESOLVE PATHS
     char cwd[PATH_MAX];
     getcwd(cwd, sizeof(cwd));
 
-    // START SANDBOX CHECK
-    // Impersonate user for path resolution
+    // Impersonate the user
     if (seteuid(0) == -1) { perror("seteuid 0"); return; }
     if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid user"); return; }
 
     if (!resolve_and_check_path(dir, loggedCwd, "accept")) {
          send_with_cwd(client_sock, "Invalid directory.\n", loggedUser);
-         // Restore
+         // Restore original uid
          if (seteuid(0) == -1) perror("seteuid 0");
          if (seteuid(original_uid) == -1) perror("seteuid orig");
          return;
     }
 
-    // Restore to root for build_abs_path and subsequent checks (though build_abs_path is string manip)
+    // Restore original uid
     if (seteuid(0) == -1) { perror("seteuid 0"); return; }
     if (seteuid(original_uid) == -1) { perror("seteuid orig"); return; }
-    // END SANDBOX CHECK
 
     build_abs_path(dest_dir_abs, cwd, dir);
     
@@ -726,9 +655,10 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     return;
 }
     
-    // ELEVATE TO ROOT for reading source (owned by sender) and writing dest (owned by receiver)
+    // up to root
     if(seteuid(0) == -1) { perror("seteuid 0"); return; }
     
+    // Open source file with rb (read binary)
     FILE *src = fopen(filename, "rb");
     if(!src) {
         perror("fopen src");
@@ -737,6 +667,7 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
         return;
     }
     
+    // Open destination file with wb (write binary)
     FILE *dst = fopen(dest_path, "wb");
     if(!dst) {
         perror("fopen dst");
@@ -746,7 +677,6 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
         return;
     }
     
-    // COPY
     char buf[4096];
     size_t n;
     while((n = fread(buf, 1, sizeof(buf), src)) > 0) fwrite(buf, 1, n, dst);
@@ -760,7 +690,7 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     chown(dest_path, uid, gid);
     chmod(dest_path, 0700);
     
-    // RESTORE
+    // Restore original uid
     seteuid(original_uid);
     
     // NOTIFY SENDER (Wake up)
@@ -769,7 +699,7 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     // UPDATE REQUEST STATUS
     sigprocmask(SIG_BLOCK, &block_mask, NULL); // Re-block for cleanup
     sem_wait(&shared_state->mutex);
-    // Verify it is still there (idx matches) - simplistic
+    // Verify it is still there (idx matches)
     if(shared_state->requests[idx].id == req_id) {
         shared_state->requests[idx].status = 1; // ACCEPTED
     }
@@ -779,14 +709,9 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     char msg[128];
     snprintf(msg, sizeof(msg), "Transfer %d accepted and completed.\n", req_id);
     send_with_cwd(client_sock, msg, loggedUser);
-}
+} // end handle accept
 
-
-/*This function is a the main function that handles the client,
-as we can see it has different behaviuors based on the message received  */
-
-
-// do not know if it works properly, this function is over testing
+// This function checks if the client wants to exit
 int handle_exit(char *buffer) {
 
   if (strcmp(buffer, "exit\n") == 0) {

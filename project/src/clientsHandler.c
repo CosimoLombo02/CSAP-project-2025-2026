@@ -1,3 +1,6 @@
+// Cosimo Lombardi 2031075 CSAP project 2025/2026
+// Simone Di Gregorio 2259275 CSAP project 2025/2026
+
 #include "clientsHandler.h"
 #include "serverFunctions.h"
 #include "lockServer.h"
@@ -10,8 +13,7 @@
 #include <errno.h>
 #include <signal.h>
 
-/*This function is a the main function that handles the client,
-as we can see it has different behaviuors based on the message received  */
+// This function is a the main function that handles the client
 void handle_client(int client_sock, int port) {
 
   // Set global for signal handler
@@ -23,8 +25,6 @@ void handle_client(int client_sock, int port) {
   char buffer[BUFFER_SIZE];
   char cwd[PATH_MAX];
   int n;
-
-  
 
   while (1) {
     n = read(client_sock, buffer, BUFFER_SIZE - 1);
@@ -41,16 +41,13 @@ void handle_client(int client_sock, int port) {
         break; // Client disconnected
     }
    
-    buffer[n] = '\0'; /*Terminates the buffer, maybe we can consider this as a
-    buffer overflow security measure ?
-    */
+    buffer[n] = '\0'; // Terminates the buffer
+
     printf("Client (Port %d): %s",
            port, buffer); // print the message received from the client, server side
-    // write(client_sock, buffer, n); //send the message to the client
-
+    
     //printf("DEBUG start-while euid: %d\n", geteuid());
 
-    // test
     char *firstToken = strtok(buffer, " "); // first token is the command
     char *secondToken = strtok(NULL, " ");  // second token of the command
     char *thirdToken = strtok(NULL, " ");   // third token of the command
@@ -90,22 +87,19 @@ void handle_client(int client_sock, int port) {
                     shared_state->logged_users[i].pid = getpid(); // Store PID
                     shared_state->logged_users[i].valid = 1;
                     break;
-                }
-            }
+                } // end if
+            } // end for
             
             // Wake up waiting processes
             for(int i=0; i<MAX_CLIENTS; i++) {
                 if(shared_state->waiters[i].valid && strcmp(shared_state->waiters[i].target_user, loggedUser) == 0) {
                     printf("Waking up PID %d waiting for %s\n", shared_state->waiters[i].pid, loggedUser); // Notify the server that we are waiting for the user to connect
                     kill(shared_state->waiters[i].pid, SIGUSR1);
-                }
-            }
+                } // end if
+            } // end for
             sem_post(&shared_state->mutex);
-            
-            // Check for pending requests for me?
-            // (Optional: Could iterate requests and notify myself, but usually notification happens at creation time or poll)
-        }
-      }
+        } // end if shared_state
+      } // end if login
 
     } else if (strcmp("create_user", firstToken) == 0) {
 
@@ -275,7 +269,7 @@ void handle_client(int client_sock, int port) {
     } else if (strcmp(firstToken,"list")==0){
       if(loggedUser[0]=='\0'){
         send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
-      }else{//here we have to implement the sandbox check
+      }else{ 
         char out[8192];
 
         // up to root
@@ -359,9 +353,6 @@ void handle_client(int client_sock, int port) {
               } 
               
             }//end if non existence of fouth token
-            //for the background upload, the client makes a new fork and in the
-            //child process calls the handle_upload function without the -b option
-            
           }//end else thirdToken
           
         }//end else secondToken
@@ -383,9 +374,7 @@ void handle_client(int client_sock, int port) {
 
                 int path_valid = resolve_and_check_path(secondToken, loggedCwd, "download");
 
-                // Check succeeded as user?
                 if(path_valid == 1){
-                  // We are already USER here.
                   char abs_path[PATH_MAX];
                   char cwd[PATH_MAX];
                   getcwd(cwd, sizeof(cwd));
@@ -395,7 +384,7 @@ void handle_client(int client_sock, int port) {
                     send_with_cwd(client_sock, "Error in the file download!\n", loggedUser);
                 }
 
-                // Restore
+                // Restore the original uid
                 if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
                 if (seteuid(original_uid) == -1) { perror("seteuid(orig)"); return; }
 
@@ -414,7 +403,7 @@ void handle_client(int client_sock, int port) {
             send_with_cwd(client_sock, "Insert permissions!\n", loggedUser);
           }else{
             
-            // Impersonate
+            // Impersonate user
             if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
             if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid(user)"); return; }
 
@@ -424,8 +413,6 @@ void handle_client(int client_sock, int port) {
               if(check_permissions(thirdToken)==0){
                   send_with_cwd(client_sock, "Invalid permissions!\n", loggedUser);
               }else{
-                // handle_chmod calls open(O_RDONLY) then fchmod. 
-                // User owns file, so can fchmod.
                 char abs_path[PATH_MAX];
                 char cwd[PATH_MAX];
                 getcwd(cwd, sizeof(cwd));
@@ -441,7 +428,7 @@ void handle_client(int client_sock, int port) {
               send_with_cwd(client_sock, "Error in the file chmod!\n", loggedUser);
             }
             
-            // Restore
+            // Restore the original uid
             if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
             if (seteuid(original_uid) == -1) { perror("seteuid(orig)"); return; }
 
@@ -460,7 +447,7 @@ void handle_client(int client_sock, int port) {
               send_with_cwd(client_sock, "Insert new path!", loggedUser);
             }else{
               
-               // Impersonate
+               // Impersonate the user
                if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
                if (seteuid(get_uid_by_username(loggedUser)) == -1) { perror("seteuid(user)"); return; }
 
@@ -490,7 +477,7 @@ void handle_client(int client_sock, int port) {
                    send_with_cwd(client_sock, "Error in the file mv!\n", loggedUser);
                }
                
-               // Restore
+               // Restore the original uid
                if (seteuid(0) == -1) { perror("seteuid(0)"); return; }
                if (seteuid(original_uid) == -1) { perror("seteuid(orig)"); return; }
                
@@ -518,7 +505,7 @@ void handle_client(int client_sock, int port) {
                 perror("seteuid(0) failed");
                 return;
             }
-             // impersonate loggedUser
+             // impersonate the user
             if (seteuid(get_uid_by_username(loggedUser)) == -1) {
                 perror("seteuid(user) failed");
                 return;
@@ -545,12 +532,10 @@ void handle_client(int client_sock, int port) {
                 if (seteuid(original_uid) == -1) {
                     perror("Error restoring effective UID");
                     return;
-                }
-            }
-        }
-        
-
-        
+                } 
+            } // end else pathToken read
+        } // end else loggedUser read
+      
       } else if(strcmp(firstToken,"write")==0){
         if(loggedUser[0]=='\0'){
           send_with_cwd(client_sock, "You are not logged in!\n", loggedUser);
@@ -566,13 +551,12 @@ void handle_client(int client_sock, int port) {
             if(pathToken == NULL || strlen(pathToken) == 0){
                  send_with_cwd(client_sock, "Insert path!\n", loggedUser);
             } else {
-                // Use "create" logic to validate parent directory (works for new and existing files)
                 // up to root
                 if (seteuid(0) == -1) {
                     perror("seteuid(0) failed");
                     return;
                 }
-                // impersonate loggedUser
+                // impersonate the user
                 if (seteuid(get_uid_by_username(loggedUser)) == -1) {
                     perror("seteuid(user) failed");
                     return;
@@ -623,7 +607,7 @@ void handle_client(int client_sock, int port) {
                 perror("seteuid(0) failed");
                 return;
             }
-            // impersonate loggedUser
+            // impersonate the user
             if (seteuid(get_uid_by_username(loggedUser)) == -1) {
                 perror("seteuid(user) failed");
                 return;
@@ -631,14 +615,9 @@ void handle_client(int client_sock, int port) {
 
             if(resolve_and_check_path(secondToken, loggedCwd, "delete")==1){
               
-              // Check locks
               char abs_path[PATH_MAX];
-              // resolve_and_check_path verifies existence but doesn't give us the absolute path easily
-              // We can construct it since we are in loggedCwd (or resolve it again)
-              // Actually resolve_and_check_path operates on arg.
-              // Let's resolve properly to check lock
               getcwd(cwd, sizeof(cwd));
-              build_abs_path(abs_path, cwd, secondToken); // Use CWD
+              build_abs_path(abs_path, cwd, secondToken);
               
               if(is_file_locked_by_transfer(abs_path)) {
                    send_with_cwd(client_sock, "Error in the file delete!\n", loggedUser);
@@ -677,11 +656,8 @@ void handle_client(int client_sock, int port) {
              if(secondToken == NULL) {
                   send_with_cwd(client_sock, "Usage: transfer_request <file> <user>\n", loggedUser);
              } else {
-                 // The prompt implies blocking if dest_user is not logged in.
-                 // We pass arguments.
                  char *t_file = secondToken;
                  char *t_user = thirdToken; 
-                 // If buffer parsing was loose, ensure we have thirdToken
                  handle_transfer_request(client_sock, t_file, t_user);
              }
           }
@@ -712,6 +688,7 @@ void handle_client(int client_sock, int port) {
       }//end else chmod invalid command
 
       //printf("DEBUG euid end-while: %d\n", geteuid());
+
   } // end while
 
   // Cleanup user from shared memory before exiting
@@ -721,6 +698,6 @@ void handle_client(int client_sock, int port) {
 
   close(client_sock);
   printf("Client disconnected port : %d\n", port);
-  exit(0);                         // ends the child process
+  exit(0);// ends the child process
 
 } // end function client handler

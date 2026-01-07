@@ -14,9 +14,7 @@
 // global variables
 extern char original_cwd[PATH_MAX];
 
-// this functions checks if the permissions are valid
-// 0 not valid , 1 valid
-
+// Here there are the declarations of the functions that are in utils.c
 int check_permissions(char *permissions);
 int check_directory(char *path);
 int check_username(char *username);

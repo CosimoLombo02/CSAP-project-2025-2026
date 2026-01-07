@@ -13,8 +13,7 @@
 #include <libgen.h>
 #include "utils.h"
 
-//this function handles the sending something to the server
-
+// Here there are the declarations of the functions that are in clientFunctions.c
 int client_download(char *server_path, char *client_path, int client_socket);
 int client_upload(char *client_path, int client_socket, char *loggedUser);
 int client_read(int client_socket);

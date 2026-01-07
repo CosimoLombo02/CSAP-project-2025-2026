@@ -1,7 +1,6 @@
 // Cosimo Lombardi 2031075 CSAP project 2025/2026
 // Simone Di Gregorio 2259275 CSAP project 2025/2026
 
-// AUTO-REFACTORED implementation from clientFunctions.h
 #include "clientFunctions.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +19,7 @@
 #include <arpa/inet.h>
 #include <signal.h>
 
-//this function handles the sending something  to the server
+// this function handles the sending something to the server
 static int send_all(int s, const void *buf, size_t len) {
     const char *p = buf;
     while (len > 0) {
@@ -28,13 +27,12 @@ static int send_all(int s, const void *buf, size_t len) {
         if (w <= 0) return -1;
         p += w;
         len -= (size_t)w;
-    }
+    } // end while
     return 0;
-}
+} // end send_all
 
-//this fuction handles the download of a file from the server
+// this function handles the download of a file from the server
 int client_download(char *server_path, char *client_path, int client_socket) {
-
 
     char buffer[BUFFER_SIZE];
     char final_path[PATH_MAX];
@@ -48,7 +46,7 @@ int client_download(char *server_path, char *client_path, int client_socket) {
         final_path[sizeof(final_path) - 1] = '\0';
     }
 
-    // Wait for READY code (consumed by caller)
+    // Wait for READY code
     // Server expects "OK"
     
     // Create local file
@@ -102,6 +100,8 @@ int client_download(char *server_path, char *client_path, int client_socket) {
 int client_upload(char *client_path, int client_socket, char *loggedUser) {
     
     char *full_path;
+
+    // Determine full path and build it
     if (client_path[0] == '/') {
         full_path = strdup(client_path);
     } else {
@@ -116,9 +116,7 @@ int client_upload(char *client_path, int client_socket, char *loggedUser) {
         return -1;
     }
 
-    
-
-
+    // Open file
     int fd = open(full_path, O_RDONLY);
     if (fd < 0) {
         perror("open");
@@ -145,12 +143,12 @@ int client_upload(char *client_path, int client_socket, char *loggedUser) {
     char buffer[BUFFER_SIZE];
     ssize_t n;
 
-
+    // Send content
     while ((n = read(fd, buffer, BUFFER_SIZE)) > 0) {
         if (send_all(client_socket, buffer, n) < 0) {
             perror("send"); close(fd); return -1;
-        }
-    }
+        } // end if
+    } // end while
     close(fd);
 
 
@@ -192,10 +190,7 @@ int client_read(int client_socket) {
             return -1;
         }
         bytes_received += (uint64_t)n;
-    }
-    // ensure a newline at the end if not present? POSIX usually implies text files end with newline.
-    // If the file content doesn't have a newline at end, the prompt might appear on same line. 
-    // Ideally we print exactly what we get.
+    } // end while
     
     return 0;
 }//end client_read
@@ -207,7 +202,7 @@ int client_write(int client_socket) {
     if (temp_fd == -1) {
         perror("mkstemp");
         return -1;
-    }
+    } // end if
 
     printf("Enter text. Press ENTER and after press Ctrl+D to finish.\n");
 

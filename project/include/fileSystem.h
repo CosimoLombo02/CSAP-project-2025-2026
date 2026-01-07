@@ -23,8 +23,7 @@
 
 extern char start_cwd[PATH_MAX];
 
-// lock the file with shared lock
-
+// Here there are the declarations of the functions that are in fileSystem.c
 int lock_shared_fd(int fd);
 int lock_exclusive_fd(int fd);
 int unlock_fd(int fd);

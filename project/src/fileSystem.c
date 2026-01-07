@@ -24,11 +24,11 @@
 // lock the file with shared lock
 int lock_shared_fd(int fd) {
     struct flock fl;
-    memset(&fl, 0, sizeof(fl));
-    fl.l_type   = F_RDLCK;   // shared
-    fl.l_whence = SEEK_SET;
-    fl.l_start  = 0;
-    fl.l_len    = 0;         // whole file
+    memset(&fl, 0, sizeof(fl)); // initialize the structure
+    fl.l_type   = F_RDLCK; // shared lock
+    fl.l_whence = SEEK_SET; // offset from the beginning
+    fl.l_start  = 0; // lock starts from byte 0
+    fl.l_len    = 0; // whole file
 
     while (fcntl(fd, F_SETLK, &fl) == -1) {
         if (errno == EINTR) continue;
@@ -40,11 +40,11 @@ int lock_shared_fd(int fd) {
 // lock the file with exclusive lock
 int lock_exclusive_fd(int fd) {
     struct flock fl;
-    memset(&fl, 0, sizeof(fl));
-    fl.l_type   = F_WRLCK;   // exclusive
-    fl.l_whence = SEEK_SET;
-    fl.l_start  = 0;
-    fl.l_len    = 0;
+    memset(&fl, 0, sizeof(fl)); // initialize the structure
+    fl.l_type   = F_WRLCK; // exclusive lock
+    fl.l_whence = SEEK_SET; // offset from the beginning
+    fl.l_start  = 0; // lock starts from byte 0
+    fl.l_len    = 0; // whole file
 
     while (fcntl(fd, F_SETLK, &fl) == -1) {
         if (errno == EINTR) continue;
@@ -56,11 +56,11 @@ int lock_exclusive_fd(int fd) {
 // unlock the file
 int unlock_fd(int fd) {
     struct flock fl;
-    memset(&fl, 0, sizeof(fl));
-    fl.l_type   = F_UNLCK;
-    fl.l_whence = SEEK_SET;
-    fl.l_start  = 0;
-    fl.l_len    = 0;
+    memset(&fl, 0, sizeof(fl)); // initialize the structure
+    fl.l_type   = F_UNLCK; // unlock
+    fl.l_whence = SEEK_SET; // offset from the beginning
+    fl.l_start  = 0; // unlock starts from byte 0
+    fl.l_len    = 0; // whole file
 
     while (fcntl(fd, F_SETLKW, &fl) == -1) {
         if (errno == EINTR) continue;
@@ -168,8 +168,6 @@ void send_with_cwd(int client_sock, const char *msg, char *loggedUser) {
         size_t len = strlen(out);
         snprintf(out + len, sizeof(out) - len, "> ");
     }
-
-    // just one write
     write(client_sock, out, strlen(out));
 }//end send cwd
 
@@ -180,29 +178,29 @@ void format_permissions(mode_t mode, char *perms) {
     if (S_ISDIR(mode)) perms[0] = 'd';
     if (S_ISLNK(mode)) perms[0] = 'l'; // for symbolic links
     
-    // Proprietario
+    // Owner
     if (mode & S_IRUSR) perms[1] = 'r';
     if (mode & S_IWUSR) perms[2] = 'w';
     if (mode & S_IXUSR) perms[3] = 'x';
     
-    // Gruppo
+    // Group
     if (mode & S_IRGRP) perms[4] = 'r';
     if (mode & S_IWGRP) perms[5] = 'w';
     if (mode & S_IXGRP) perms[6] = 'x';
     
-    // Altri
+    // Others
     if (mode & S_IROTH) perms[7] = 'r';
     if (mode & S_IWOTH) perms[8] = 'w';
     if (mode & S_IXOTH) perms[9] = 'x';
 }//end format permissions
 
-// returns a string with info of a single file (now complete in style ls -l)
+// returns a string with info of a single file
 void file_info_string(const char *fullpath, char *out, size_t out_size) {
     struct stat file_stat;
     char perms[11];
     char time_str[80];
     
-    // Important: we use lstat to not follow symbolic links <<<
+    // gets the file info (permissions, size, etc.)
     if (lstat(fullpath, &file_stat) == -1) { 
         snprintf(out, out_size, "Error: impossible to read %s: %s\n", fullpath, strerror(errno));
         return;
@@ -217,7 +215,7 @@ void file_info_string(const char *fullpath, char *out, size_t out_size) {
     const char *username = pw ? pw->pw_name : "unknown";
     const char *groupname = gr ? gr->gr_name : "unknown";
 
-    // formats the date: es. "Dec 10 10:59"
+    // formats the date: es. "Mon day hour:minute"
     strftime(time_str, sizeof(time_str), "%b %e %H:%M", localtime(&file_stat.st_mtime));
 
     // prints the file info
@@ -254,8 +252,8 @@ void file_info_string(const char *fullpath, char *out, size_t out_size) {
         //if the buffer is full, ensure termination and newline
         out[out_size - 2] = '\n';
         out[out_size - 1] = '\0';
-    }
-}
+    } // end if
+} // end file info string
 
 // Returns a string with all the info of the directory
 void list_directory_string(const char *path, char *out, size_t out_size) {
@@ -272,7 +270,7 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
     *current_pos = '\0'; 
 
     if ((dir = opendir(path)) == NULL) {
-        snprintf(out, out_size, "Error: impossible to open %s: %s\n", path, strerror(errno));
+        snprintf(out, out_size, "Error: impossible to open: %s\n", strerror(errno));
         return;
     }
 
@@ -298,7 +296,7 @@ void list_directory_string(const char *path, char *out, size_t out_size) {
         } else if (remaining_size <= 1) {
             break; // runs out of space
         }
-    }
+    } // end while
 
     closedir(dir);
 }//end list directory string
@@ -374,10 +372,8 @@ void handle_upload(int client_sock, char *server_path, char* client_path, char *
 
     fwrite(buffer, 1, (size_t)n, fd);
     bytes_received += (uint64_t)n;
-  }
+  } // end while
 
-  
-  
   unlock_fd(fileno(fd));
   fclose(fd);
 
@@ -472,38 +468,32 @@ void handle_download(int client_sock, char *server_path, char *loggedUser) {
     send_with_cwd(client_sock, "", loggedUser); 
 }//end handle download
 
-
-
 //this fucntions changes the permissions of a file
 int handle_chmod(char *server_path, char *permissions) {
     mode_t mode = strtol(permissions, NULL, 8);
 
-    // 1. Open the file 
-    // We use O_RDONLY. flock() works on read-only descriptors on Linux.
-    // fcntl(F_WRLCK) would require O_WRONLY which might fail if file is read-only.
+    // Open the file 
     int fd = open(server_path, O_RDONLY);
     if (fd == -1) {
         perror("open failed in handle_chmod");
         return -1;
     }
 
-    // 2. Acquire Exclusive Lock
-    // LOCK_EX = Exclusive lock
+    // Acquire Exclusive Lock
     if (flock(fd, LOCK_EX) == -1) {
         perror("flock failed");
         close(fd);
         return -1;
     }
 
-    // 3. Change permissions
+    // Change permissions
     int result = fchmod(fd, mode);
     if (result == -1) {
         perror("fchmod failed");
     }
 
-    // 4. Release Lock (Explicitly)
-    // LOCK_UN = Unlock
-    flock(fd, LOCK_UN); //yes its paranoic but it works!
+    // Release Lock (Explicitly)
+    flock(fd, LOCK_UN);    
 
     // Close file
     close(fd);
@@ -512,7 +502,6 @@ int handle_chmod(char *server_path, char *permissions) {
 }//end handle_chmod
 
 //this functions move a file from the old path to the new path
-//just a prototype without locks
 int handle_mv(const char *old_abs, const char *new_abs) {
   struct stat st;
   char full_new_path[PATH_MAX];
@@ -530,9 +519,7 @@ int handle_mv(const char *old_abs, const char *new_abs) {
     dest_path = full_new_path;
   }
 
-  // LOCKING (Only for files)
   int fd = -1;
-  // Check if old_abs is a directory (we don't lock directories with fcntl)
   if (stat(old_abs, &st) == 0 && !S_ISDIR(st.st_mode)) {
       fd = open(old_abs, O_WRONLY);
       if (fd >= 0) {
@@ -540,10 +527,9 @@ int handle_mv(const char *old_abs, const char *new_abs) {
               perror("Resource busy (move)");
               close(fd);
               return -1;
-          }
-      } 
-      // If open fails (e.g. permission), we proceed to rename without lock
-  }
+          } // end if
+      } // end if
+  } // end if
 
   if (rename(old_abs, dest_path) == -1){
     perror("error renaming");
@@ -556,26 +542,25 @@ int handle_mv(const char *old_abs, const char *new_abs) {
 }//end handle_mv
 
 //this functions delete a file
-//just a prototype without locks
 int handle_delete(char *server_path) {
-    // 1. Open the file to lock it
+    // Open the file to lock it
     int fd = open(server_path, O_WRONLY);
     if (fd < 0) {
         // if the file doesn't exist, we just unlink it
         return unlink(server_path);
     }
 
-    // 2. Lock Exclusive (to ensure no one is reading/writing)
+    // Lock Exclusive
     if (lock_exclusive_fd(fd) < 0) {
         perror("lock_exclusive_fd delete");
         close(fd);
-        return -1; // Locked by someone else
+        return -1;
     }
 
-    // 3. Unlink
+    // Unlink
     int res = unlink(server_path);
 
-    // 4. Unlock and close
+    // Unlock and close
     unlock_fd(fd);
     close(fd);
     
@@ -691,7 +676,7 @@ void handle_write(int client_sock, char *server_path, char *loggedUser, long off
         // Create new
         fd = open(server_path, O_WRONLY | O_CREAT, 0700);
     } else {
-        // Open existing without truncation (for patching)
+        // Open existing without truncation
         fd = open(server_path, O_WRONLY);
     }
 

@@ -1,6 +1,9 @@
+// Cosimo Lombardi 2031075 CSAP project 2025/2026
+// Simone Di Gregorio 2259275 CSAP project 2025/2026
+
 #include "lockServer.h"
 #include "serverFunctions.h" 
-#include "utils.h" /* for unlock_fd likely */
+#include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -21,8 +24,8 @@ static void init_locks() {
     if(!initialized) {
         for(int i=0; i<MAX_CLIENTS; i++) held_locks[i].fd = -1;
         initialized = 1;
-    }
-}
+    } // end if
+} // end init_locks
 
 void track_transfer_lock(int req_id, int fd) {
     init_locks();
@@ -31,9 +34,9 @@ void track_transfer_lock(int req_id, int fd) {
             held_locks[i].req_id = req_id;
             held_locks[i].fd = fd;
             return;
-        }
-    }
-}
+        } // end if
+    } // end for
+} // end track_transfer_lock
 
 void release_transfer_lock(int req_id) {
     init_locks();
@@ -43,9 +46,9 @@ void release_transfer_lock(int req_id) {
             close(held_locks[i].fd);
             held_locks[i].fd = -1;
             return;
-        }
-    }
-}
+        } // end if
+    } // end for
+} // end release_transfer_lock
 
 // Check if file is locked by a pending transfer
 int is_file_locked_by_transfer(char *path) {
@@ -59,9 +62,9 @@ int is_file_locked_by_transfer(char *path) {
             if(fstat(held_locks[i].fd, &lock_st) == 0) {
                 if(target_st.st_dev == lock_st.st_dev && target_st.st_ino == lock_st.st_ino) {
                     return 1;
-                }
-            }
-        }
-    }
+                } // end if
+            } // end if
+        } // end if
+    } // end for
     return 0;
-}
+} // end is_file_locked_by_transfer

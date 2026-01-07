@@ -20,8 +20,6 @@
 #include <arpa/inet.h>
 #include <signal.h>
 
-
-
 // this functions checks if the permissions are valid
 // 0 not valid , 1 valid
 int check_permissions(char *permissions) {
@@ -129,17 +127,6 @@ void normalize_path(char *path) {
     char *p = path;
     char *out = path;
     
-    // Very simple normalization for /.. and /. patterns
-    // We assume path is absolute or starts with /
-    
-    // Algorithm: iterate tokens. Stack-like approach in-place.
-    // Since we only shrink, we can do it in place.
-    // But handling standard string tokenization is tricky in C.
-    // Let's implement a robust pass.
-    
-    // 1. Remove multiple slashes is already done by helper/snprintf usually but we can do it.
-    // 2. Resolve . and ..
-    
     // Approach: Use a temporary stack buffer
     char stack[PATH_MAX];
     char *token;
@@ -203,8 +190,7 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
       }
   }
   
-  // LOGICAL NORMALIZATION FIRST
-  // This allows resolving "cwd/.." logically even if cwd is 000 permission
+  // Normalize the path
   strncpy(normalized_logical, path_to_resolve, PATH_MAX);
   normalize_path(normalized_logical);
 
@@ -228,9 +214,8 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
 
       // Check if the resolved parent directory is inside the sandbox
       size_t root_len = strlen(loggedCwd);
-      if (strncmp(resolved_dir, loggedCwd, root_len) != 0) {
-          // Special case: if the target IS the sandbox root, it's allowed
-          // (e.g. move file /spalletti -> /spalletti/file)
+      if (strncmp(resolved_dir, loggedCwd, root_len) != 0 || 
+         (resolved_dir[root_len] != '\0' && resolved_dir[root_len] != '/')) { // check if the loggedCwd is contained in the resolved_dir and if the resolved_dir ends with a slash or with terminator
           if(strcmp(normalized_logical, loggedCwd) == 0) {
              return 1;
           }
@@ -241,10 +226,6 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
 
   }else if (strcmp(command, "list") != 0) {
 
-    // resolve the path
-    // Use the NORMALIZED path for realpath.
-    // If we are "cd .." from 000 dir, normalized path will be "/path/to/parent" (absolute).
-    // realpath("/path/to/parent") should work.
     if (realpath(normalized_logical, absolute_path) == NULL) {
         return 0;
     }
@@ -252,7 +233,8 @@ int resolve_and_check_path(const char *input, const char *loggedCwd, const char 
     // check if the path is inside the sandbox
     size_t root_len = strlen(loggedCwd);
 
-    if (strncmp(absolute_path, loggedCwd, root_len) != 0) {
+    if (strncmp(absolute_path, loggedCwd, root_len) != 0 || 
+       (absolute_path[root_len] != '\0' && absolute_path[root_len] != '/')) {
         return 0; // path outside the sandbox
     }
 

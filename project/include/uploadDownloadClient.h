@@ -1,6 +1,7 @@
 // Cosimo Lombardi 2031075 CSAP project 2025/2026
 // Simone Di Gregorio 2259275 CSAP project 2025/2026
 
+// AUTO-REFACTORED: split header/implementation for modular build
 #ifndef UPLOAD_DOWNLOAD_CLIENT_H
 #define UPLOAD_DOWNLOAD_CLIENT_H
 
@@ -21,6 +22,7 @@ extern char logged_user[64];
 // Struct for active operations
 typedef enum { OP_UPLOAD, OP_DOWNLOAD } OperationType;
 
+// Struct for active operations
 typedef struct ActiveOperation {
     pid_t pid;
     OperationType type;
@@ -29,10 +31,11 @@ typedef struct ActiveOperation {
     struct ActiveOperation *next;
 } ActiveOperation;
 
+// Global variables
 extern ActiveOperation *active_operations;
 extern char current_prompt[BUFFER_SIZE];
 
-// API
+// Here there are the declarations of the functions that are in uploadDownloadClient.c
 void update_prompt(const char *buffer);
 void add_operation(pid_t pid, OperationType type, char *server_path, char *client_path);
 void remove_and_print_operation(pid_t pid, int status);

@@ -25,7 +25,6 @@ char original_cwd[PATH_MAX];
 char start_cwd[PATH_MAX];
 SharedState *shared_state = NULL;
 
-// the client is handled by specific functions in serverFunctions.h
 int main(int argc, char *argv[]) {
 
   strncpy(start_cwd, getcwd(original_cwd, PATH_MAX), PATH_MAX);
@@ -105,7 +104,7 @@ int main(int argc, char *argv[]) {
 
   // params are mandatory
   if (argc != 4) {
-    printf("Needs params!");
+    printf("Needs params!\nUsage: ./server <root_dir> <ip> <port>\n");
     exit(1);
   } // end if
 
@@ -180,40 +179,22 @@ int main(int argc, char *argv[]) {
   fd_set readfds;
   int max_sd = server_sock;
 
-  // Server services
   while (1) {
 
-    // This is implemented for listening both the server socket and the standard
-    // input
-    FD_ZERO(&readfds);
-    FD_SET(server_sock, &readfds);
-    FD_SET(STDIN_FILENO, &readfds);
+    FD_ZERO(&readfds); // clear the set
+    FD_SET(server_sock, &readfds); // add the server socket
+    FD_SET(STDIN_FILENO, &readfds); // add the standard input
 
-    // wait for an activity on one of the sockets
     int activity = select(max_sd + 1, &readfds, NULL, NULL, NULL);
 
-
-    // NOTE:
-    // select() can be interrupted by signals (e.g., SIGCHLD when a child exits).
-    // In that case it returns -1 and sets errno = EINTR, but the fd_sets are no
-    // longer reliable for checking FD_ISSET(). If we simply continued and used
-    // readfds anyway, we might think that server_sock or STDIN_FILENO are ready
-    // when they are not, and then:
-    //   - call accept() on the listening socket and block, or
-    //   - call read() on STDIN and block the main server loop.
-    // To avoid this, when errno == EINTR we just restart the loop, rebuild the
-    // fd_sets, and call select() again on a clean state.
     if (activity < 0) {
       if (errno == EINTR) {
-        // select was interrupted by a signal (e.g. SIGCHLD for a child that terminates)
-        // simply restart the loop
         continue;
       } else {
         perror("select error");
-        break;   // or exit(1); if you prefer to exit
+        break;
       }
     }//end if activity
-
 
     // If something happened on the standard input
     if (FD_ISSET(STDIN_FILENO, &readfds)) {

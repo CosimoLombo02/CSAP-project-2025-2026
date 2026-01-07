@@ -14,6 +14,7 @@
 #include "clientFunctions.h"
 #include "uploadDownloadClient.h"
 
+// global variables
 char original_cwd[PATH_MAX];
 
 
@@ -25,7 +26,7 @@ int main(int argc, char *argv[]) {
 
   // params are mandatory
   if (argc != 3) {
-    printf("Needs params!");
+    printf("Needs params!\nUsage: ./client <server_ip> <port>\n");
     exit(1);
   }
 
@@ -37,6 +38,7 @@ int main(int argc, char *argv[]) {
 
   int sock = socket(AF_INET, SOCK_STREAM, 0);
   
+  // signal handler for child processes
   signal(SIGCHLD, sigchld_handler);
   if (sock < 0) {
     perror("Error in the socket creation!");
@@ -81,7 +83,7 @@ int main(int argc, char *argv[]) {
            break;
         }
 
-        // 1. Check for Asynchronous Notification
+        // Check for Asynchronous Notification
         if (FD_ISSET(sock, &readfds)) {
             int n = read(sock, buffer, BUFFER_SIZE - 1);
             if (n <= 0) {
@@ -89,7 +91,7 @@ int main(int argc, char *argv[]) {
                  break;
             }
             buffer[n] = '\0';
-            // Print notification (likely starts with \n or [!])
+            // Print notification
             // We overwrite the current prompt line
             printf("\r%s", buffer);
             // Reprint prompt if not contained
@@ -100,11 +102,9 @@ int main(int argc, char *argv[]) {
             continue; 
         }
 
-        // 2. Check for User Input
+        // Check for User Input
         if (FD_ISSET(STDIN_FILENO, &readfds)) {
             if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) break;
-            
-            // --- EXISTING COMMAND LOGIC STARTS HERE ---
             
             // Capture potential login username
             if (strncmp(buffer, "login ", 6) == 0) {
@@ -142,7 +142,7 @@ int main(int argc, char *argv[]) {
                         exit(1);
                      }
                      
-                     // Auto-login if user was logged in
+                     // Auto-login if user was logged in for background upload
                      if (strlen(logged_user) > 0) {
                          char login_cmd[128];
                          snprintf(login_cmd, sizeof(login_cmd), "login %s\n", logged_user);
@@ -170,7 +170,7 @@ int main(int argc, char *argv[]) {
                      int n2 = read(new_sock, buf2, BUFFER_SIZE-1);
                      if (n2 > 0) {
                          buf2[n2] = '\0';
-                         // Check if server says "You are not logged in!"
+                         // Check if server says "You are not logged in!" and exit
                          if (strstr(buf2, "not logged in") != NULL) {
                              close(new_sock);
                              exit(101); // Not logged in
@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
                                     exit(105); // Anomalous exit
                                  }
                                  
-                                 // Manually read response (silent check)
+                                 // Manually read response
                                  char response[4096] = {0};
                                  read(new_sock, response, sizeof(response) - 1);
                                  
@@ -230,7 +230,7 @@ int main(int argc, char *argv[]) {
                         exit(1);
                      }
                      
-                     // Auto-login
+                     // Auto-login for background download
                      if (strlen(logged_user) > 0) {
                          char login_cmd[128];
                          snprintf(login_cmd, sizeof(login_cmd), "login %s\n", logged_user);
@@ -243,8 +243,8 @@ int main(int argc, char *argv[]) {
                              total_read += r;
                              tmp[total_read] = '\0';
                              if (strstr(tmp, "> ") != NULL) break;
-                         }
-                     }
+                         } // end while
+                     } // end if
                      
                      // Send download command without -b
                      char dw_cmd[BUFFER_SIZE];
@@ -267,30 +267,27 @@ int main(int argc, char *argv[]) {
                              } else {
                                  close(new_sock);
                                  exit(103); 
-                             }
+                             } // end if
                          } else {
-                             // Server said "File not found" or something
+                             // Server said "File not found" or something and exit
                              close(new_sock);
                              exit(102); 
-                         }
-                     }
+                         } // end if
+                     } // end if
                      close(new_sock);
                      exit(1);
-                }
-           }
+                } // end else
+           } // end if
 
 
-            /*if the user types exit the client terminates,
-            but this is just a prototype, we have to handle the
-            -b option as the professor wrote on the slides
-            */
+            // if there are operations pending, the client cannot exit
             if (strcmp(buffer, "exit\n") == 0) {
               if (active_operations != NULL) {
                   printf("Background operations pending... cannot exit.\n%s", current_prompt);
                   fflush(stdout);
                   continue;
-              }
-              printf("Bye!\n"); // output on the console
+              } // end if
+              printf("Bye!\n");
               break;
             } // end if
 

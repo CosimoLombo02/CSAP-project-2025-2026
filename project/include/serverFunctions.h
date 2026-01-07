@@ -17,7 +17,7 @@
 #include <signal.h>
 #include <sys/mman.h>
 
-#define MAX_CLIENTS 50
+#define MAX_CLIENTS 50 // maximum number of clients used for the shared memory
 
 // Structure to track waiting processes
 typedef struct {
@@ -53,7 +53,7 @@ typedef struct {
     sem_t mutex; // Semaphore for mutual exclusion
 } SharedState;
 
-// Global pointer to shared memory (must be initialized in main/server.c)
+// Global pointer to shared memory
 extern SharedState *shared_state;
 extern int current_client_sock;
 
@@ -65,8 +65,7 @@ extern char root_directory[PATH_MAX];
 extern char loggedUser[64];
 extern char loggedCwd[PATH_MAX];
 
-// create a real user in the system
-
+// Here there are the declarations of the functions that are in serverFunctions.c
 int create_system_user(char *username);
 char *login(char *username, int client_socket, char *loggedUser);
 void create_user(char *username, char *permissions, int client_sock);

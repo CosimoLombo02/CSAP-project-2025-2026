@@ -1,13 +1,13 @@
+// Cosimo Lombardi 2031075 CSAP project 2025/2026
+// Simone Di Gregorio 2259275 CSAP project 2025/2026
+
+// AUTO-REFACTORED: split header/implementation for modular build
 #ifndef LOCKSERVER_H
 #define LOCKSERVER_H
 
-// Tracks a file descriptor locked for a specific transfer request
+// Here there are the declarations of the functions that are in lockServer.c
 void track_transfer_lock(int req_id, int fd);
-
-// Releases the lock associated with a transfer request
 void release_transfer_lock(int req_id);
-
-// Checks if a file is currently locked by any pending transfer
 int is_file_locked_by_transfer(char *path);
 
 #endif // LOCKSERVER_H

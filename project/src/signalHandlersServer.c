@@ -47,7 +47,7 @@ void sigusr2_handler(int signo) {
             char msg[1024];
             char *txt = (status == 1) ? "accepted" : "rejected";
             
-            // Replicate CWD prompt logic for user convenience (as requested)
+            // Replicate CWD prompt logic for user convenience
             char *display_cwd = loggedCwd;
             char *pos = strstr(loggedCwd, start_cwd);
             if (pos == loggedCwd) { 
@@ -57,30 +57,15 @@ void sigusr2_handler(int signo) {
             // Construct notification: Message + Newline + Newline + Prompt
             int len = snprintf(msg, sizeof(msg), "\nTransfer %d %s!\n\n%s > ", shared_state->requests[i].id, txt, display_cwd);
             write(current_client_sock, msg, len);
-        }
-    }
-}
+        } // end if
+    } // end for
+} // end sigusr2_handler
 
-// Signal for SIGRTMIN (Notify receiver of new request)
-/* NOTE: We can't access client_socket easily here to write() unless we make it global or passed in data.
-   However, we are in the main server loop or child process.
-   In the child process (handle_client), distinct signals can interrupt blocking calls?
-   Actually, `handle_client` logic is synchronous. We need a way to notify the client ASYNC.
-   Writing to the socket from a signal handler is risky but common for simple notifications if careful.
-   Better approach: Set a flag and check it in the loop? 
-   But the loop is blocked on `read`.
-   If we write to the socket, it will appear as output to the client.
-*/
-
-// We need a global variable for the current client socket in the child process to write to it.
 int current_client_sock = -1;
 
+// Signal for SIGRTMIN (Notify receiver of new request)
 void sigrtmin_handler(int signo) {
     if(!shared_state || current_client_sock == -1) return;
-    
-    // Check for my requests
-    // WARNING: We are in a signal handler. sem_wait is safe in theory but prone to deadlock if interrupted thread holds it.
-    // We REMOVE locking here. We read shared memory optimistically.
     
     pid_t my_pid = getpid();
     for(int i=0; i<MAX_CLIENTS; i++) {
@@ -105,11 +90,6 @@ void sigrtmin_handler(int signo) {
                 // Matches at start
                 display_cwd = loggedCwd + strlen(start_cwd);
             }
-            
-            // If display_cwd is empty (root), make it "/"? 
-            // Or send_with_cwd behavior: if path is relative, it just prints it.
-            // If display_cwd is empty string, it prints " > " ?
-            // Let's assume valid relative path if not root.
     
             int len = snprintf(msg, sizeof(msg), "\n[!] Incoming Transfer Request (ID: %d) from %s for file %s\nAccept with: accept <dir> %d\nReject with: reject %d\n\n%s > ", 
                      shared_state->requests[i].id, 
