@@ -132,7 +132,10 @@ int change_directory(char * path){
 
 }//end change directory
 
+
 // send to the client: "<msg>\n<cwd> > "
+extern char root_directory[PATH_MAX];
+
 void send_with_cwd(int client_sock, const char *msg, char *loggedUser) {
   if (loggedUser[0] == '\0') {
     write(client_sock, msg, strlen(msg));
@@ -155,15 +158,30 @@ void send_with_cwd(int client_sock, const char *msg, char *loggedUser) {
 
         char *pos = strstr(cwd_buf, start_cwd);
 
-    if (pos != NULL) {
-        memmove(
-            pos,
-            pos + strlen(start_cwd),
-            strlen(pos + strlen(start_cwd)) + 1
-        );
-    }
-
-        snprintf(out + len, sizeof(out) - len, "%s > ", pos);
+        if (pos != NULL) {
+             // Move past the start_cwd
+             pos += strlen(start_cwd);
+        } else {
+             pos = cwd_buf;
+        }
+        
+        // Remove root_directory name if present
+        char root_copy[PATH_MAX];
+        strncpy(root_copy, root_directory, PATH_MAX);
+        char *root_base = basename(root_copy);
+        
+        char prefix[PATH_MAX];
+        snprintf(prefix, sizeof(prefix), "/%s", root_base);
+        
+        if (strncmp(pos, prefix, strlen(prefix)) == 0) {
+             pos += strlen(prefix);
+        }
+        
+        if (*pos == '\0') {
+            snprintf(out + len, sizeof(out) - len, "/ > ");
+        } else {
+            snprintf(out + len, sizeof(out) - len, "%s > ", pos);
+        }
     } else {
         size_t len = strlen(out);
         snprintf(out + len, sizeof(out) - len, "> ");

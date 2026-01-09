@@ -161,8 +161,46 @@ int main(int argc, char *argv[]) {
                      }
                      
                      // Send upload command without -b
-                     char up_cmd[BUFFER_SIZE];
-                     snprintf(up_cmd, sizeof(up_cmd), "upload %s %s\n", t2, t3);
+                     // Helper: Resolve server path using current_prompt if relative
+                     char abs_server_path[PATH_MAX * 2];
+                     if (t3[0] != '/') {
+                        // Attempt to extract CWD from prompt
+                        // Prompt format: "path > " or "/path > "
+                        char *prompt_end = strstr(current_prompt, " > ");
+                        if (prompt_end) {
+                            int path_len = prompt_end - current_prompt;
+                            if (path_len > 0 && path_len < PATH_MAX) {
+                                char current_cwd[PATH_MAX];
+                                strncpy(current_cwd, current_prompt, path_len);
+                                current_cwd[path_len] = '\0';
+                                
+                                // Trim leading/trailing spaces if any
+                                if(strcmp(current_cwd, "/") == 0) {
+                                     snprintf(abs_server_path, PATH_MAX * 2, "/%s", t3);
+                                } else {
+                                     if (strlen(current_cwd) + strlen(t3) + 2 > PATH_MAX) {
+                                         fprintf(stderr, "Error: Path too long (max %d)\n", PATH_MAX);
+                                         close(new_sock);
+                                         exit(1);
+                                     }
+                                     snprintf(abs_server_path, PATH_MAX * 2, "%s/%s", current_cwd, t3);
+                                }
+                            } else {
+                                strcpy(abs_server_path, t3); // Fallback
+                            }
+                        } else {
+                            strcpy(abs_server_path, t3); // Fallback
+                        }
+                     } else {
+                         strcpy(abs_server_path, t3);
+                     }
+
+                     char up_cmd[PATH_MAX * 2 + BUFFER_SIZE];
+                     if (snprintf(up_cmd, sizeof(up_cmd), "upload %s %s\n", t2, abs_server_path) >= (int)sizeof(up_cmd)) {
+                          fprintf(stderr, "Error: Command too long\n");
+                          close(new_sock);
+                          exit(1);
+                     }
                      write(new_sock, up_cmd, strlen(up_cmd));
                      
                      // Handle response
@@ -247,8 +285,46 @@ int main(int argc, char *argv[]) {
                      } // end if
                      
                      // Send download command without -b
-                     char dw_cmd[BUFFER_SIZE];
-                     snprintf(dw_cmd, sizeof(dw_cmd), "download %s %s\n", t2, t3);
+                     // Helper: Resolve server path using current_prompt if relative
+                     char abs_server_path[PATH_MAX * 2];
+                     if (t2[0] != '/') {
+                        // Attempt to extract CWD from prompt
+                        // Prompt format: "path > " or "/path > "
+                        char *prompt_end = strstr(current_prompt, " > ");
+                        if (prompt_end) {
+                            int path_len = prompt_end - current_prompt;
+                            if (path_len > 0 && path_len < PATH_MAX) {
+                                char current_cwd[PATH_MAX];
+                                strncpy(current_cwd, current_prompt, path_len);
+                                current_cwd[path_len] = '\0';
+                                
+                                // Trim leading/trailing spaces if any
+                                if(strcmp(current_cwd, "/") == 0) {
+                                     snprintf(abs_server_path, PATH_MAX * 2, "/%s", t2);
+                                } else {
+                                     if (strlen(current_cwd) + strlen(t2) + 2 > PATH_MAX) {
+                                         fprintf(stderr, "Error: Path too long (max %d)\n", PATH_MAX);
+                                         close(new_sock);
+                                         exit(1);
+                                     }
+                                     snprintf(abs_server_path, PATH_MAX * 2, "%s/%s", current_cwd, t2);
+                                }
+                            } else {
+                                strcpy(abs_server_path, t2); // Fallback
+                            }
+                        } else {
+                            strcpy(abs_server_path, t2); // Fallback
+                        }
+                     } else {
+                         strcpy(abs_server_path, t2);
+                     }
+
+                     char dw_cmd[PATH_MAX * 2 + BUFFER_SIZE];
+                     if (snprintf(dw_cmd, sizeof(dw_cmd), "download %s %s\n", abs_server_path, t3) >= (int)sizeof(dw_cmd)) {
+                          fprintf(stderr, "Error: Command too long\n");
+                          close(new_sock);
+                          exit(1);
+                     }
                      write(new_sock, dw_cmd, strlen(dw_cmd));
                      
                      // Handle response
