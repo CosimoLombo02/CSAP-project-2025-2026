@@ -74,7 +74,5 @@ void handle_transfer_request(int client_sock, char *filename, char *dest_user);
 void handle_reject(int client_sock, int req_id, char *loggedUser);
 void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser);
 
-int handle_exit(char *buffer);
-
 
 #endif // SERVERFUNCTIONS_H

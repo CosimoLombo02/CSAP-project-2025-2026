@@ -710,12 +710,3 @@ void handle_accept(int client_sock, char *dir, int req_id, char *loggedUser) {
     snprintf(msg, sizeof(msg), "Transfer %d accepted and completed.\n", req_id);
     send_with_cwd(client_sock, msg, loggedUser);
 } // end handle accept
-
-// This function checks if the client wants to exit
-int handle_exit(char *buffer) {
-
-  if (strcmp(buffer, "exit\n") == 0) {
-    return 1;
-  } // end if
-  return 0;
-} // end handle exit
